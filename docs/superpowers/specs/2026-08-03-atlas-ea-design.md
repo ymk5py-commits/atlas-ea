@@ -247,3 +247,20 @@ avanza con un sistema perdedor "porque ya está construido".
   seguidas ≈ −18% del capital. El kill switch de −25% es el último fusible.
 - Este proyecto es una herramienta de software; la decisión de operar dinero real y
   sus consecuencias son exclusivamente del usuario.
+
+---
+
+## 10. Addendum v1.0 (2026-08-04) — configuración validada por backtest
+
+Tras el ciclo de backtests (ver commits): dos bugs corregidos (sizing con tick_value
+roto del broker; kill switch sin pico persistido) y optimización de gestión validada
+en períodos independientes (2023-2024: +17.5% / 2025-2026: +22.0%, 930 trades).
+
+**Defaults finales (difieren del diseño original §4-5):**
+- `InpRiskPct` 1.5 (era 2.0) — elegido por el usuario tras ver DD proyectados.
+- `InpMaxDrawdownPct` 30 (era 25) — margen sobre el DD máx observado 23.9%.
+- `InpRR` 2.0 (era 1.5) · `InpBeTriggerR` 1.0 (era 0.8) · `InpTrailAtrMult` 2.0 (era 1.0).
+
+**Resultado del backtest final (todas las protecciones activas):** 2023.01→2026.07,
+500→613.47 USD (+22.7%), 917 trades, DD máx 23.9%, kill switch 0 disparos.
+**Expectativa comunicada al usuario: 6-16% anual con rachas de −15 a −25%.**

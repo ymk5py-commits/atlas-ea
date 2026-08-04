@@ -28,19 +28,19 @@ input bool   InpEnablePush       = true;            // Notificaciones push al ce
 input int    InpDeviationPoints  = 20;              // Slippage maximo (points)
 
 input group "Riesgo"
-input double InpRiskPct          = 2.0;             // Riesgo por operacion (% equity)
+input double InpRiskPct          = 1.5;             // Riesgo por operacion (% equity)
 input double InpDailyLossPct     = 5.0;             // Limite de perdida diaria (%)
-input double InpMaxDrawdownPct   = 25.0;            // Kill switch: DD desde pico (%)
+input double InpMaxDrawdownPct   = 30.0;            // Kill switch: DD desde pico (%)
 input double InpMaxTotalRiskPct  = 3.0;             // Riesgo abierto total maximo (%)
 input int    InpMaxTradesPerDay  = 4;               // Max operaciones/dia por simbolo
 input int    InpMaxPositions     = 2;               // Max posiciones simultaneas
 input bool   InpResetKillSwitch  = false;           // Resetear kill switch (tras revisar)
 
 input group "Gestion de posicion"
-input double InpRR               = 1.5;             // Objetivo en R (TP sin parcial)
-input double InpBeTriggerR       = 0.8;             // Break-even al llegar a +R
+input double InpRR               = 2.0;             // Objetivo en R (TP sin parcial)
+input double InpBeTriggerR       = 1.0;             // Break-even al llegar a +R
 input double InpPartialR         = 1.0;             // Cierre parcial al llegar a +R
-input double InpTrailAtrMult     = 1.0;             // Trailing: multiplicador ATR
+input double InpTrailAtrMult     = 2.0;             // Trailing: multiplicador ATR
 
 input group "Estrategias"
 input bool   InpEnableTrend      = true;            // Estrategia de tendencia (pullback)
