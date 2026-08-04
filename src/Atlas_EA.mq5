@@ -273,9 +273,19 @@ void EvaluateSymbol(const int idx)
    //--- Gates de contexto
    if(g_session.MustCloseAll())
       return;
-   if(!g_session.EntryAllowed(symbol))
+   if(!g_session.EntryAllowedAt(TimeTradeServer()))
      {
-      g_notifier.Log(symbol + ": fuera de sesion o spread alto, sin entradas.");
+      g_notifier.Log(symbol + ": fuera de sesion, sin entradas.");
+      return;
+     }
+   if(!g_session.SpreadOK(symbol))
+     {
+      long sp = SymbolInfoInteger(symbol, SYMBOL_SPREAD);
+      if(sp <= 0)
+         g_notifier.Log(symbol + ": sin datos de precio aun (reconectando), salteo esta vela.");
+      else
+         g_notifier.Log(StringFormat("%s: spread %d pts excede el limite %d, sin entradas.",
+                                     symbol, sp, g_session.MaxSpreadFor(symbol)));
       return;
      }
    if(g_news.IsBlocked())
