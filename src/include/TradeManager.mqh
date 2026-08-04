@@ -73,7 +73,6 @@ public:
      {
       m_trade.SetExpertMagicNumber(ATLAS_MAGIC);
       m_trade.SetDeviationInPoints(deviationPoints);
-      m_trade.SetTypeFillingBySymbol(_Symbol);
       m_rr           = rr;
       m_beTriggerR   = beTriggerR;
       m_partialR     = partialR;
@@ -124,6 +123,7 @@ public:
          tp = NormPrice(symbol, sig.dir == SIGNAL_BUY ? entry + m_rr * slDist
                                                       : entry - m_rr * slDist);
 
+      m_trade.SetTypeFillingBySymbol(symbol);   // modo de ejecución correcto del símbolo
       bool ok = false;
       for(int attempt = 1; attempt <= 3 && !ok; attempt++)
         {
