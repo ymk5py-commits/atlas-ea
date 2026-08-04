@@ -68,22 +68,62 @@ public:
          m_notifier.Notify("Kill switch RESETEADO manualmente. Pico de equity reiniciado.");
         }
 
+      //--- El pico DEBE existir desde el arranque: si solo baja el equity,
+      //--- el kill switch tiene que poder disparar igual.
+      if(!GlobalVariableCheck(m_gvPeak))
+         GlobalVariableSet(m_gvPeak, AccountInfoDouble(ACCOUNT_EQUITY));
+
       m_currentDay      = DateOf(TimeTradeServer());
       m_dayStartEquity  = AccountInfoDouble(ACCOUNT_EQUITY);
+     }
+
+   //--- Pérdida por 1 lote entre entry y sl. Combina el motor del broker
+   //--- (OrderCalcProfit) con el cálculo estructural (dist × contrato) y
+   //--- usa el MAYOR: datos rotos del broker nunca pueden agrandar el lote.
+   //--- (Bug real detectado: MetaQuotes-Demo reporta tick_value=0.1 en
+   //--- XAUUSD, 10 veces menos que el valor real del contrato de 100 oz.)
+   double LossPerLot(const string symbol, const double entry, const double sl)
+     {
+      double sl_dist = MathAbs(entry - sl);
+      if(sl_dist <= 0.0)
+         return 0.0;
+
+      double lossBroker = 0.0;
+      ENUM_ORDER_TYPE ot = (sl < entry ? ORDER_TYPE_BUY : ORDER_TYPE_SELL);
+      double calc = 0.0;
+      if(OrderCalcProfit(ot, symbol, 1.0, entry, sl, calc))
+         lossBroker = MathAbs(calc);
+
+      double lossStruct = 0.0;
+      string quote = SymbolInfoString(symbol, SYMBOL_CURRENCY_PROFIT);
+      string acct  = AccountInfoString(ACCOUNT_CURRENCY);
+      double contract = SymbolInfoDouble(symbol, SYMBOL_TRADE_CONTRACT_SIZE);
+      if(quote == acct && contract > 0.0)
+         lossStruct = sl_dist * contract;
+
+      double lossTick = 0.0;
+      double tick_size  = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_SIZE);
+      double tick_value = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_VALUE);
+      if(tick_size > 0.0 && tick_value > 0.0)
+         lossTick = sl_dist / tick_size * tick_value;
+
+      //--- el mayor de los tres estimadores = el lote más conservador
+      return MathMax(lossBroker, MathMax(lossStruct, lossTick));
      }
 
    //--- Cálculo de lote por riesgo fijo. Devuelve 0 si no se puede operar.
    double CalcLots(const string symbol, const double entry, const double sl)
      {
-      double tick_size  = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_SIZE);
-      double tick_value = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_VALUE);
-      double sl_dist    = MathAbs(entry - sl);
-      if(tick_size <= 0.0 || tick_value <= 0.0 || sl_dist <= 0.0)
+      double sl_dist = MathAbs(entry - sl);
+      if(sl_dist <= 0.0)
          return 0.0;
 
-      double loss_per_lot = sl_dist / tick_size * tick_value;
+      double loss_per_lot = LossPerLot(symbol, entry, sl);
       if(loss_per_lot <= 0.0)
+        {
+         m_notifier.Notify(symbol + ": no se pudo calcular la perdida por lote — operacion salteada por seguridad.");
          return 0.0;
+        }
 
       double equity     = AccountInfoDouble(ACCOUNT_EQUITY);
       double risk_money = equity * m_riskPct / 100.0;
@@ -126,11 +166,7 @@ public:
          double pvol   = PositionGetDouble(POSITION_VOLUME);
          if(psl <= 0.0)
             continue;                       // sin SL no debería pasar; no suma
-         double tick_size  = SymbolInfoDouble(psym, SYMBOL_TRADE_TICK_SIZE);
-         double tick_value = SymbolInfoDouble(psym, SYMBOL_TRADE_TICK_VALUE);
-         if(tick_size <= 0.0)
-            continue;
-         double risk = MathAbs(pentry - psl) / tick_size * tick_value * pvol;
+         double risk = LossPerLot(psym, pentry, psl) * pvol;
          if(risk > 0.0)
             total += risk;                  // SL en ganancia (BE) no resta riesgo
         }

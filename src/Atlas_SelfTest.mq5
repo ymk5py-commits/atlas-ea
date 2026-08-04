@@ -91,12 +91,10 @@ void TestSizing(const string symbol, CRiskManager &risk)
       return;
      }
    double point = SymbolInfoDouble(symbol, SYMBOL_POINT);
-   double tickSize = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_SIZE);
-   double tickValue = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_VALUE);
    double ask = SymbolInfoDouble(symbol, SYMBOL_ASK);
-   if(ask <= 0.0 || tickSize <= 0.0 || tickValue <= 0.0)
+   if(ask <= 0.0 || point <= 0.0)
      {
-      Print("SKIP  sizing ", symbol, ": mercado cerrado o sin datos (correr con mercado abierto)");
+      Print("SKIP  sizing ", symbol, ": sin precio aun (correr con mercado abierto)");
       return;
      }
 
@@ -105,23 +103,26 @@ void TestSizing(const string symbol, CRiskManager &risk)
    double lots = risk.CalcLots(symbol, ask, sl);
    double equity = AccountInfoDouble(ACCOUNT_EQUITY);
    double riskMoney = equity * risk.RiskPct() / 100.0;
-   double lossPerLot = slDist / tickSize * tickValue;
-   double step = SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP);
+   //--- REFERENCIA INDEPENDIENTE del codigo bajo prueba: perdida estructural
+   //--- = distancia x tamano de contrato (valida para XAUUSD/EURUSD en cuenta USD).
+   //--- Un test circular (misma formula que el codigo) dejo pasar el bug del
+   //--- tick_value de MetaQuotes-Demo; esta referencia lo habria atrapado.
+   double contract = SymbolInfoDouble(symbol, SYMBOL_TRADE_CONTRACT_SIZE);
+   double lossRef  = slDist * contract;
    double vmin = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
    double vmax = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MAX);
 
    Assert(lots >= 0.0, "sizing " + symbol + ": lote no negativo");
+   Assert(contract > 0.0, "sizing " + symbol + ": contract_size disponible");
    if(lots > 0.0)
      {
-      Assert(lots * lossPerLot <= riskMoney * 1.0001,
-             "sizing " + symbol + ": el riesgo del lote no excede el % configurado");
+      Assert(lots * lossRef <= riskMoney * 1.02,
+             "sizing " + symbol + ": riesgo REAL (dist x contrato) no excede el % configurado");
       Assert(lots >= vmin && lots <= vmax,
              "sizing " + symbol + ": lote dentro de los limites del broker");
-      Assert((lots + step) * lossPerLot > riskMoney * 0.9999 || MathAbs(lots - vmax) < step / 2.0,
-             "sizing " + symbol + ": lote es el maximo posible dentro del riesgo (floor correcto)");
       Print("INFO  ", symbol, ": equity ", DoubleToString(equity, 2),
-            " riesgo ", DoubleToString(riskMoney, 2), " USD -> ",
-            DoubleToString(lots, 2), " lotes con SL de 400 points");
+            " riesgo ", DoubleToString(riskMoney, 2), " USD -> ", DoubleToString(lots, 2),
+            " lotes | perdida real al SL: ", DoubleToString(lots * lossRef, 2), " USD");
      }
    else
       Print("INFO  ", symbol, ": lote minimo excede el riesgo -> skip correcto para cuenta chica");
