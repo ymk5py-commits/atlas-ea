@@ -12,13 +12,22 @@ set -uo pipefail
 NAME="atlas-ea"
 IMAGE="atlas-ea:1.0"
 
+# El escritorio gráfico puede tener un docker de snap (daemon distinto, sin
+# nuestras imágenes). Forzamos el binario y el socket del sistema.
+export DOCKER_HOST="unix:///var/run/docker.sock"
+DOCKER=/usr/bin/docker
+[ -x "$DOCKER" ] || DOCKER="$(command -v docker)"
+docker() { "$DOCKER" "$@"; }
+
 echo "════════════════════════════════════════════════════════════════"
 echo "  ATLAS EA — encender el bot en este servidor"
 echo "════════════════════════════════════════════════════════════════"
+echo "  docker: $DOCKER"
 
 if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
-   echo "  ✗ No existe la imagen $IMAGE. Construirla primero:"
-   echo "    cd ~/atlas-ea && docker build -f docker/Dockerfile -t $IMAGE ."
+   echo "  ✗ No existe la imagen $IMAGE en este daemon."
+   echo "    Imagenes visibles:"
+   docker images --format "      {{.Repository}}:{{.Tag}}" 2>&1 | head -5
    exit 1
 fi
 
