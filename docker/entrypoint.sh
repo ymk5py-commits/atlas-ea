@@ -8,8 +8,16 @@ CFG="${MT5}/atlas.ini"
 PARAMS_DIR="${MT5}/MQL5/Profiles/Tester"
 
 : "${MT_LOGIN:?Falta MT_LOGIN}"
-: "${MT_PASSWORD:?Falta MT_PASSWORD}"
+: "${MT_PASSWORD:=}"
 : "${MT_SERVER:=MetaQuotes-Demo}"
+
+# Credenciales ya guardadas por MetaTrader en otra instalación (accounts.dat
+# cifrado). Evita tener que pasar la contraseña en texto plano.
+if [ -d /seed-config ]; then
+   echo "[ATLAS] Importando credenciales guardadas de MetaTrader"
+   mkdir -p "${MT5}/config"
+   cp -a /seed-config/. "${MT5}/config/" 2>/dev/null || true
+fi
 : "${ATLAS_SYMBOLS:=XAUUSD,EURUSD}"
 : "${ATLAS_RISK:=1.5}"
 : "${ATLAS_DAILY_LOSS:=5.0}"
@@ -32,7 +40,7 @@ mkdir -p "$PARAMS_DIR"
 {
   printf '[Common]\r\n'
   printf 'Login=%s\r\n'    "$MT_LOGIN"
-  printf 'Password=%s\r\n' "$MT_PASSWORD"
+  [ -n "$MT_PASSWORD" ] && printf 'Password=%s\r\n' "$MT_PASSWORD"
   printf 'Server=%s\r\n'   "$MT_SERVER"
   printf 'EnableNews=false\r\n'
   printf '[Experts]\r\n'
