@@ -5,7 +5,8 @@ set -uo pipefail
 
 MT5="${WINEPREFIX}/drive_c/Program Files/MetaTrader 5"
 CFG="${MT5}/atlas.ini"
-PARAMS_DIR="${MT5}/MQL5/Profiles/Tester"
+# El terminal busca los .set de un EA de gráfico en MQL5/Presets
+PARAMS_DIR="${MT5}/MQL5/Presets"
 
 : "${MT_LOGIN:?Falta MT_LOGIN}"
 : "${MT_PASSWORD:=}"

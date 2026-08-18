@@ -83,6 +83,45 @@ string             g_cacheRegime[];
 string             g_cacheRating[];
 datetime           g_lastDashUpdate = 0;
 
+//--- Inicialización diferida por símbolo: al arrancar en un servidor, el
+//--- terminal puede no estar conectado todavía y los símbolos no existen aún.
+bool               g_symReady[];
+datetime           g_lastInitTry = 0;
+
+//+------------------------------------------------------------------+
+//| Intenta dejar operativo un símbolo (selección + indicadores).     |
+//| Devuelve true si quedó listo. Se reintenta desde el timer hasta   |
+//| que el terminal esté conectado y el símbolo exista.               |
+//+------------------------------------------------------------------+
+bool TryInitSymbol(const int i)
+  {
+   if(g_symReady[i])
+      return true;
+
+   string s = g_symbols[i];
+   if(!SymbolSelect(s, true))
+      return false;
+   if(SymbolInfoDouble(s, SYMBOL_POINT) <= 0.0)
+      return false;                       // aún sin especificación del símbolo
+
+   if(g_hAtrM15[i] == INVALID_HANDLE)
+      g_hAtrM15[i] = iATR(s, PERIOD_M15, 14);
+
+   if(!g_tvM15[i].Init(s, PERIOD_M15) || !g_tvH1[i].Init(s, PERIOD_H1) ||
+      !g_regime[i].Init(s, InpAdxTrend, InpSqueezeRatio) ||
+      !g_trend[i].Init(s, InpAtrSlMult) ||
+      !g_breakout[i].Init(s, InpAsiaStart, InpAsiaEnd, InpBreakEnd,
+                          InpMaxRangeAtrMult, InpAtrSlMult) ||
+      g_hAtrM15[i] == INVALID_HANDLE)
+      return false;
+
+   g_symReady[i] = true;
+   g_cacheRegime[i] = "cargando historia...";
+   g_cacheRating[i] = "cargando historia...";
+   g_notifier.Log(s + ": indicadores listos, operativo.");
+   return true;
+  }
+
 //+------------------------------------------------------------------+
 int OnInit()
   {
@@ -101,12 +140,6 @@ int OnInit()
       StringTrimLeft(s);
       StringTrimRight(s);
       g_symbols[i] = s;
-      if(!SymbolSelect(s, true))
-        {
-         Print("[ATLAS] ERROR: simbolo no disponible en este broker: ", s,
-               " — revisar el nombre exacto (ej. XAUUSD vs GOLD).");
-         return INIT_PARAMETERS_INCORRECT;
-        }
      }
 
    //--- Módulos globales
@@ -131,30 +164,21 @@ int OnInit()
    ArrayResize(g_lastM15, n);
    ArrayResize(g_cacheRegime, n);
    ArrayResize(g_cacheRating, n);
+   ArrayResize(g_symReady, n);
 
    for(int i = 0; i < n; i++)
      {
-      string s = g_symbols[i];
       g_tvM15[i]    = new CTVRating();
       g_tvH1[i]     = new CTVRating();
       g_regime[i]   = new CRegimeDetector();
       g_trend[i]    = new CTrendStrategy();
       g_breakout[i] = new CBreakoutStrategy();
-      g_hAtrM15[i]  = iATR(s, PERIOD_M15, 14);
+      g_hAtrM15[i]  = INVALID_HANDLE;
       g_lastM15[i]  = 0;
-      g_cacheRegime[i] = "cargando datos...";
-      g_cacheRating[i] = "cargando datos...";
-
-      if(!g_tvM15[i].Init(s, PERIOD_M15) || !g_tvH1[i].Init(s, PERIOD_H1) ||
-         !g_regime[i].Init(s, InpAdxTrend, InpSqueezeRatio) ||
-         !g_trend[i].Init(s, InpAtrSlMult) ||
-         !g_breakout[i].Init(s, InpAsiaStart, InpAsiaEnd, InpBreakEnd,
-                             InpMaxRangeAtrMult, InpAtrSlMult) ||
-         g_hAtrM15[i] == INVALID_HANDLE)
-        {
-         Print("[ATLAS] ERROR: no se pudieron crear indicadores para ", s);
-         return INIT_FAILED;
-        }
+      g_symReady[i] = false;
+      g_cacheRegime[i] = "esperando conexion...";
+      g_cacheRating[i] = "esperando conexion...";
+      TryInitSymbol(i);          // si el terminal aún no conectó, se reintenta
      }
 
    //--- Re-adoptar posiciones tras reinicio
@@ -231,19 +255,33 @@ void RunCycle()
    if(!killed && g_session.MustCloseAll())
       g_trade.CloseAllOwn("cierre previo al fin de semana");
 
-   //--- 3) Gestión de posiciones abiertas (BE, parcial, trailing)
-   for(int i = 0; i < n; i++)
-      g_trade.Manage(g_symbols[i], AtrM15(i));
+   //--- 3) Símbolos que aún no quedaron operativos (terminal recién conectado):
+   //---    reintentar cada 20 s hasta lograrlo.
+   datetime nowTs = TimeCurrent();
+   if(nowTs - g_lastInitTry >= 20)
+     {
+      g_lastInitTry = nowTs;
+      for(int i = 0; i < n; i++)
+         if(!g_symReady[i])
+            TryInitSymbol(i);
+     }
 
-   //--- 4) Señales en vela M15 nueva
+   //--- 4) Gestión de posiciones abiertas (BE, parcial, trailing)
+   for(int i = 0; i < n; i++)
+      if(g_symReady[i])
+         g_trade.Manage(g_symbols[i], AtrM15(i));
+
+   //--- 5) Señales en vela M15 nueva
    for(int i = 0; i < n; i++)
      {
+      if(!g_symReady[i])
+         continue;
       if(!NewM15Bar(g_symbols[i], g_lastM15[i]))
          continue;
       EvaluateSymbol(i);
      }
 
-   //--- 5) Dashboard cada 5 s
+   //--- 6) Dashboard cada 5 s
    datetime now = TimeCurrent();
    if(now - g_lastDashUpdate >= 5)
      {
