@@ -248,7 +248,8 @@ void RunCycle()
       g_trade.CloseAllOwn("kill switch por drawdown maximo");
    bool killed = g_risk.KillSwitchLatched();
 
-   //--- 1) Rollover diario
+   //--- 1) Rollover diario (y fijar la referencia si la cuenta recién sincronizó)
+   g_risk.EnsureBaseline();
    g_risk.CheckNewDay();
 
    //--- 2) Viernes: cierre total pre-weekend

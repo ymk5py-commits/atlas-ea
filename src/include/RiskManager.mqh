@@ -68,13 +68,15 @@ public:
          m_notifier.Notify("Kill switch RESETEADO manualmente. Pico de equity reiniciado.");
         }
 
-      //--- El pico DEBE existir desde el arranque: si solo baja el equity,
-      //--- el kill switch tiene que poder disparar igual.
-      if(!GlobalVariableCheck(m_gvPeak))
-         GlobalVariableSet(m_gvPeak, AccountInfoDouble(ACCOUNT_EQUITY));
+      //--- El pico DEBE existir desde el arranque (si solo baja el equity, el
+      //--- kill switch tiene que poder disparar), pero SOLO con datos reales:
+      //--- grabar un pico 0 haría que el switch se dispare al primer chequeo.
+      double eq0 = AccountInfoDouble(ACCOUNT_EQUITY);
+      if(!GlobalVariableCheck(m_gvPeak) && eq0 > 0.0)
+         GlobalVariableSet(m_gvPeak, eq0);
 
       m_currentDay      = DateOf(TimeTradeServer());
-      m_dayStartEquity  = AccountInfoDouble(ACCOUNT_EQUITY);
+      m_dayStartEquity  = eq0;              // si es 0, EnsureBaseline lo fija luego
      }
 
    //--- Pérdida por 1 lote entre entry y sl. Combina el motor del broker
@@ -188,10 +190,30 @@ public:
       return count;
      }
 
+   //--- ¿La cuenta está conectada y con datos reales?
+   //--- Antes de sincronizar, el equity es 0 y CUALQUIER comparación de
+   //--- pérdida daría verdadera: hay que ignorar ese estado por completo.
+   bool AccountLive()
+     {
+      if(!TerminalInfoInteger(TERMINAL_CONNECTED))
+         return false;
+      return (AccountInfoDouble(ACCOUNT_EQUITY) > 0.0);
+     }
+
+   //--- Fija la referencia diaria en cuanto haya equity real
+   void EnsureBaseline()
+     {
+      if(m_dayStartEquity <= 0.0 && AccountLive())
+        {
+         m_dayStartEquity = AccountInfoDouble(ACCOUNT_EQUITY);
+         m_notifier.Log("Equity base del dia fijado: " + DoubleToString(m_dayStartEquity, 2));
+        }
+     }
+
    //--- ¿Se perdió ya el máximo diario?
    bool DailyLossHit()
      {
-      if(m_dayStartEquity <= 0.0)
+      if(!AccountLive() || m_dayStartEquity <= 0.0)
          return false;
       double equity = AccountInfoDouble(ACCOUNT_EQUITY);
       return (equity <= m_dayStartEquity * (1.0 - m_dailyLossPct / 100.0));
@@ -215,8 +237,12 @@ public:
      {
       if(GlobalVariableCheck(m_gvKill))
          return false;                      // ya estaba latcheado
+      if(!AccountLive())
+         return false;                      // sin cuenta sincronizada no se evalúa
       double equity = AccountInfoDouble(ACCOUNT_EQUITY);
       double peak   = GlobalVariableCheck(m_gvPeak) ? GlobalVariableGet(m_gvPeak) : equity;
+      if(peak <= 0.0)
+         peak = equity;                     // pico inválido (se grabó sin conexión)
       if(equity > peak)
         {
          peak = equity;
