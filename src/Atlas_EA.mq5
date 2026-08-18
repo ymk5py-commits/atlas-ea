@@ -164,6 +164,8 @@ int OnInit()
    g_notifier.Log(StringFormat(
       "ATLAS EA iniciado. Simbolos: %s | Riesgo %.1f%%/op | Limite diario %.1f%% | Kill switch %.0f%%",
       InpSymbols, InpRiskPct, InpDailyLossPct, InpMaxDrawdownPct));
+   if(TerminalInfoInteger(TERMINAL_VPS))
+      g_notifier.Notify("Corriendo en VPS 24/5 (sin panel visual). El pico de equity del kill switch arranca desde el equity actual.");
    if(g_risk.KillSwitchLatched())
       g_notifier.Critical("ATENCION: kill switch ACTIVO. El bot no opera hasta resetear (InpResetKillSwitch=true).");
    return INIT_SUCCEEDED;
@@ -351,6 +353,8 @@ void UpdateDashboard()
   {
    if(MQLInfoInteger(MQL_TESTER) && !MQLInfoInteger(MQL_VISUAL_MODE))
       return;
+   if(TerminalInfoInteger(TERMINAL_VPS))
+      return;                          // en VPS no hay pantalla que dibujar
 
    int n = ArraySize(g_symbols);
    string regimes[], ratings[], positions[];
