@@ -8,8 +8,9 @@
 #include "AtlasTypes.mqh"
 #include "Notifier.mqh"
 
-#define ATLAS_GV_ISL  ATLAS_GV_PREFIX + "ISL_"   // SL inicial por ticket
-#define ATLAS_GV_IV   ATLAS_GV_PREFIX + "IV_"    // volumen inicial por ticket
+#define ATLAS_GV_ISL   ATLAS_GV_PREFIX + "ISL_"   // SL inicial por ticket
+#define ATLAS_GV_IV    ATLAS_GV_PREFIX + "IV_"    // volumen inicial por ticket
+#define ATLAS_GV_SCALP ATLAS_GV_PREFIX + "SCALP_" // marca de posicion scalp
 
 class CTradeManager
   {
@@ -21,8 +22,18 @@ private:
    double            m_partialR;        // R para el cierre parcial
    double            m_trailAtrMult;    // multiplicador ATR del trailing
 
-   string GvISL(const ulong ticket) const { return ATLAS_GV_ISL + IntegerToString((long)ticket); }
-   string GvIV(const ulong ticket)  const { return ATLAS_GV_IV  + IntegerToString((long)ticket); }
+   string GvISL(const ulong ticket)   const { return ATLAS_GV_ISL   + IntegerToString((long)ticket); }
+   string GvIV(const ulong ticket)    const { return ATLAS_GV_IV    + IntegerToString((long)ticket); }
+   string GvScalp(const ulong ticket) const { return ATLAS_GV_SCALP + IntegerToString((long)ticket); }
+
+   //--- ¿La posición (ya seleccionada) es un scalp? GV primario;
+   //--- el comentario sobrevive reinicios como respaldo.
+   bool IsScalpTicket(const ulong ticket) const
+     {
+      if(GlobalVariableCheck(GvScalp(ticket)))
+         return true;
+      return (StringFind(PositionGetString(POSITION_COMMENT), "SCALP") >= 0);
+     }
 
    double NormPrice(const string symbol, const double price) const
      {
@@ -60,6 +71,8 @@ private:
             ticket = (ulong)StringToInteger(StringSubstr(name, StringLen(ATLAS_GV_ISL)));
          else if(StringFind(name, ATLAS_GV_IV) == 0)
             ticket = (ulong)StringToInteger(StringSubstr(name, StringLen(ATLAS_GV_IV)));
+         else if(StringFind(name, ATLAS_GV_SCALP) == 0)
+            ticket = (ulong)StringToInteger(StringSubstr(name, StringLen(ATLAS_GV_SCALP)));
          else
             continue;
          if(ticket > 0 && !PositionSelectByTicket(ticket))
@@ -164,7 +177,131 @@ public:
       return true;
      }
 
+   //--- Apertura de SCALP: TP fijo en R, sin parcial ni trailing M15.
+   //--- La posición queda marcada (GV + comentario) para que Manage()
+   //--- no la toque y ManageScalp() la gestione.
+   bool OpenScalp(const string symbol, const SSignal &sig, const double lots,
+                  const double rrScalp)
+     {
+      if(sig.dir == SIGNAL_NONE || lots <= 0.0)
+         return false;
+
+      double point = SymbolInfoDouble(symbol, SYMBOL_POINT);
+      long   stopsLevel = SymbolInfoInteger(symbol, SYMBOL_TRADE_STOPS_LEVEL);
+      double ask = SymbolInfoDouble(symbol, SYMBOL_ASK);
+      double bid = SymbolInfoDouble(symbol, SYMBOL_BID);
+
+      double entry = (sig.dir == SIGNAL_BUY ? ask : bid);
+      double sl    = NormPrice(symbol, sig.sl_price);
+      double slDist = MathAbs(entry - sl);
+
+      if(slDist < stopsLevel * point + point)
+        {
+         m_notifier.Log(symbol + ": scalp descartado, SL demasiado cerca (stops level).");
+         return false;
+        }
+
+      double tp = NormPrice(symbol, sig.dir == SIGNAL_BUY ? entry + rrScalp * slDist
+                                                          : entry - rrScalp * slDist);
+
+      m_trade.SetTypeFillingBySymbol(symbol);
+      bool ok = false;
+      for(int attempt = 1; attempt <= 3 && !ok; attempt++)
+        {
+         if(sig.dir == SIGNAL_BUY)
+            ok = m_trade.Buy(lots, symbol, 0.0, sl, tp, "ATLAS-SCALP " + sig.reason);
+         else
+            ok = m_trade.Sell(lots, symbol, 0.0, sl, tp, "ATLAS-SCALP " + sig.reason);
+
+         uint rc = m_trade.ResultRetcode();
+         if(!ok)
+           {
+            if(rc == TRADE_RETCODE_REQUOTE || rc == TRADE_RETCODE_PRICE_CHANGED ||
+               rc == TRADE_RETCODE_PRICE_OFF)
+              {
+               m_notifier.Log(StringFormat("%s: scalp retcode %u, reintento %d/3", symbol, rc, attempt));
+               Sleep(300);
+              }
+            else
+              {
+               m_notifier.Notify(StringFormat("%s: scalp RECHAZADO (retcode %u: %s)",
+                                              symbol, rc, m_trade.ResultRetcodeDescription()));
+               return false;
+              }
+           }
+        }
+      if(!ok)
+        {
+         m_notifier.Notify(symbol + ": scalp fallido tras 3 reintentos.");
+         return false;
+        }
+
+      //--- Marcar la posición como scalp (en hedging el ticket = orden)
+      ulong posTicket = m_trade.ResultOrder();
+      if(posTicket > 0)
+         GlobalVariableSet(GvScalp(posTicket), 1.0);
+
+      RegisterInitialState();
+      m_notifier.Notify(StringFormat("SCALP %s %s %.2f lotes @ %.5f | SL %.5f | TP %.5f | %s",
+                        symbol, (sig.dir == SIGNAL_BUY ? "COMPRA" : "VENTA"), lots,
+                        m_trade.ResultPrice(), sl, tp, sig.reason));
+      return true;
+     }
+
+   //--- Gestión de SCALPS: break-even rápido + cierre por tiempo.
+   //--- El TP/SL del broker hace el resto (salida en R fija).
+   void ManageScalp(const string symbol, const double beR, const int maxHoldSec)
+     {
+      for(int i = PositionsTotal() - 1; i >= 0; i--)
+        {
+         ulong ticket = PositionGetTicket(i);
+         if(ticket == 0 || PositionGetInteger(POSITION_MAGIC) != ATLAS_MAGIC)
+            continue;
+         if(PositionGetString(POSITION_SYMBOL) != symbol)
+            continue;
+         if(!IsScalpTicket(ticket))
+            continue;
+
+         long   ptype  = PositionGetInteger(POSITION_TYPE);
+         double entry  = PositionGetDouble(POSITION_PRICE_OPEN);
+         double slNow  = PositionGetDouble(POSITION_SL);
+         double tpNow  = PositionGetDouble(POSITION_TP);
+         bool   isBuy  = (ptype == POSITION_TYPE_BUY);
+
+         double isl = GlobalVariableCheck(GvISL(ticket)) ? GlobalVariableGet(GvISL(ticket)) : slNow;
+         double riskDist = MathAbs(entry - isl);
+
+         //--- 1) Cierre por tiempo: un scalp que no definió, se corta
+         datetime opentime = (datetime)PositionGetInteger(POSITION_TIME);
+         if(maxHoldSec > 0 && TimeCurrent() - opentime >= maxHoldSec)
+           {
+            if(m_trade.PositionClose(ticket))
+               m_notifier.Notify(StringFormat("%s: scalp cerrado por tiempo (%d min sin definir).",
+                                              symbol, maxHoldSec / 60));
+            continue;
+           }
+
+         //--- 2) Break-even rápido
+         if(riskDist <= 0.0)
+            continue;
+         double point  = SymbolInfoDouble(symbol, SYMBOL_POINT);
+         double price  = SymbolInfoDouble(symbol, isBuy ? SYMBOL_BID : SYMBOL_ASK);
+         double r      = (isBuy ? price - entry : entry - price) / riskDist;
+         long   spread = SymbolInfoInteger(symbol, SYMBOL_SPREAD);
+
+         bool beDone = (isBuy ? slNow >= entry : (slNow > 0.0 && slNow <= entry));
+         if(!beDone && r >= beR)
+           {
+            double bePrice = NormPrice(symbol, isBuy ? entry + (spread + 1) * point
+                                                     : entry - (spread + 1) * point);
+            if(m_trade.PositionModify(ticket, bePrice, tpNow))
+               m_notifier.Log(StringFormat("%s: scalp a break-even (+%.1fR).", symbol, r));
+           }
+        }
+     }
+
    //--- Gestión de posiciones abiertas del símbolo (llamar cada timer)
+   //--- Los scalps se saltean: los maneja ManageScalp().
    void Manage(const string symbol, const double atr)
      {
       for(int i = PositionsTotal() - 1; i >= 0; i--)
@@ -173,6 +310,8 @@ public:
          if(ticket == 0 || PositionGetInteger(POSITION_MAGIC) != ATLAS_MAGIC)
             continue;
          if(PositionGetString(POSITION_SYMBOL) != symbol)
+            continue;
+         if(IsScalpTicket(ticket))
             continue;
 
          long   ptype  = PositionGetInteger(POSITION_TYPE);

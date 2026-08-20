@@ -86,18 +86,23 @@ string RegimeToString(const ERegime r)
   }
 
 //+------------------------------------------------------------------+
-//| True una sola vez por vela M15 nueva del símbolo                 |
+//| True una sola vez por vela nueva del símbolo en el timeframe dado|
 //| 'last' guarda el open time de la última vela vista               |
 //+------------------------------------------------------------------+
-bool NewM15Bar(const string symbol, datetime &last)
+bool NewBar(const string symbol, const ENUM_TIMEFRAMES tf, datetime &last)
   {
-   datetime t = iTime(symbol, PERIOD_M15, 0);
+   datetime t = iTime(symbol, tf, 0);
    if(t == 0)
       return false;               // historia aún no cargada
    if(t == last)
       return false;
    last = t;
    return true;
+  }
+
+bool NewM15Bar(const string symbol, datetime &last)
+  {
+   return NewBar(symbol, PERIOD_M15, last);
   }
 
 //+------------------------------------------------------------------+

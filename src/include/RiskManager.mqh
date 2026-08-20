@@ -22,6 +22,7 @@ private:
 
    string            m_symbols[];
    int               m_tradesToday[];
+   int               m_scalpsToday[];      // contador diario de scalps por símbolo
 
    string            m_gvPeak;             // GlobalVariable: pico de equity
    string            m_gvKill;             // GlobalVariable: latch del kill switch
@@ -51,10 +52,12 @@ public:
       int n = ArraySize(symbols);
       ArrayResize(m_symbols, n);
       ArrayResize(m_tradesToday, n);
+      ArrayResize(m_scalpsToday, n);
       for(int i = 0; i < n; i++)
         {
-         m_symbols[i]     = symbols[i];
-         m_tradesToday[i] = 0;
+         m_symbols[i]      = symbols[i];
+         m_tradesToday[i]  = 0;
+         m_scalpsToday[i]  = 0;
         }
 
       long login = AccountInfoInteger(ACCOUNT_LOGIN);
@@ -114,7 +117,9 @@ public:
      }
 
    //--- Cálculo de lote por riesgo fijo. Devuelve 0 si no se puede operar.
-   double CalcLots(const string symbol, const double entry, const double sl)
+   //--- riskPctOverride > 0 permite un riesgo distinto (p.ej. scalping).
+   double CalcLots(const string symbol, const double entry, const double sl,
+                   const double riskPctOverride = 0.0)
      {
       double sl_dist = MathAbs(entry - sl);
       if(sl_dist <= 0.0)
@@ -127,8 +132,9 @@ public:
          return 0.0;
         }
 
+      double riskPct    = (riskPctOverride > 0.0 ? riskPctOverride : m_riskPct);
       double equity     = AccountInfoDouble(ACCOUNT_EQUITY);
-      double risk_money = equity * m_riskPct / 100.0;
+      double risk_money = equity * riskPct / 100.0;
       double lots       = risk_money / loss_per_lot;
 
       double step = SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP);
@@ -142,7 +148,7 @@ public:
         {
          m_notifier.Notify(StringFormat(
             "%s: operacion salteada — hasta el lote minimo %.2f excede el riesgo %.1f%% (SL %.1f pts)",
-            symbol, vmin, m_riskPct, sl_dist / SymbolInfoDouble(symbol, SYMBOL_POINT)));
+            symbol, vmin, riskPct, sl_dist / SymbolInfoDouble(symbol, SYMBOL_POINT)));
          return 0.0;
         }
       if(lots > vmax)
@@ -228,7 +234,10 @@ public:
       m_currentDay     = today;
       m_dayStartEquity = AccountInfoDouble(ACCOUNT_EQUITY);
       for(int i = 0; i < ArraySize(m_tradesToday); i++)
+        {
          m_tradesToday[i] = 0;
+         m_scalpsToday[i] = 0;
+        }
       m_notifier.Log("Nuevo dia de trading. Equity base: " + DoubleToString(m_dayStartEquity, 2));
      }
 
@@ -284,12 +293,48 @@ public:
       return true;
      }
 
+   //--- ¿Se puede abrir un SCALP nuevo en este símbolo?
+   //--- Comparte los frenos duros (kill switch, límite diario, exposición)
+   //--- pero tiene su propio contador de operaciones por día.
+   bool CanOpenScalp(const string symbol, const int maxScalpsPerDay,
+                     const double scalpRiskPct, string &blockReason)
+     {
+      if(KillSwitchLatched())
+        { blockReason = "kill switch activo"; return false; }
+      if(DailyLossHit())
+        { blockReason = StringFormat("limite de perdida diaria %.1f%% alcanzado", m_dailyLossPct); return false; }
+      if(CountOwnPositions(symbol) > 0)
+        { blockReason = "ya hay posicion abierta en " + symbol; return false; }
+      if(CountOwnPositions() >= m_maxPositions)
+        { blockReason = "maximo de posiciones simultaneas alcanzado"; return false; }
+      int idx = SymbolIndex(symbol);
+      if(idx >= 0 && m_scalpsToday[idx] >= maxScalpsPerDay)
+        { blockReason = StringFormat("maximo %d scalps/dia en %s", maxScalpsPerDay, symbol); return false; }
+      if(OpenRiskPct() + scalpRiskPct > m_maxTotalRiskPct + 0.0001)
+        { blockReason = StringFormat("riesgo total abierto superaria %.1f%%", m_maxTotalRiskPct); return false; }
+      blockReason = "";
+      return true;
+     }
+
    //--- Registrar operación abierta (contador diario)
    void RegisterOpen(const string symbol)
      {
       int idx = SymbolIndex(symbol);
       if(idx >= 0)
          m_tradesToday[idx]++;
+     }
+
+   void RegisterScalpOpen(const string symbol)
+     {
+      int idx = SymbolIndex(symbol);
+      if(idx >= 0)
+         m_scalpsToday[idx]++;
+     }
+
+   int ScalpsToday(const string symbol)
+     {
+      int idx = SymbolIndex(symbol);
+      return (idx >= 0 ? m_scalpsToday[idx] : 0);
      }
 
    int TradesToday(const string symbol)

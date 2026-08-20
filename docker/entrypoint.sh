@@ -23,6 +23,12 @@ fi
 : "${ATLAS_RISK:=1.5}"
 : "${ATLAS_DAILY_LOSS:=5.0}"
 : "${ATLAS_MAX_DD:=30.0}"
+# Scalping M1 (estilo manual del dueño): riesgo y frecuencia propios,
+# frenos duros (límite diario / kill switch / exposición) compartidos.
+: "${ATLAS_SCALP:=true}"
+: "${ATLAS_SCALP_SYMBOLS:=XAUUSD}"
+: "${ATLAS_SCALP_RISK:=1.0}"
+: "${ATLAS_SCALP_MAX_DAY:=15}"
 
 mkdir -p "$PARAMS_DIR"
 
@@ -36,6 +42,10 @@ mkdir -p "$PARAMS_DIR"
   printf 'InpRR=2.0\r\n'
   printf 'InpBeTriggerR=1.0\r\n'
   printf 'InpTrailAtrMult=2.0\r\n'
+  printf 'InpEnableScalp=%s\r\n'      "$ATLAS_SCALP"
+  printf 'InpScalpSymbols=%s\r\n'     "$ATLAS_SCALP_SYMBOLS"
+  printf 'InpScalpRiskPct=%s\r\n'     "$ATLAS_SCALP_RISK"
+  printf 'InpScalpMaxPerDay=%s\r\n'   "$ATLAS_SCALP_MAX_DAY"
 } > "${PARAMS_DIR}/atlas_params.set"
 
 {
@@ -60,9 +70,13 @@ chmod 600 "$CFG"
 echo "[ATLAS] Iniciando MetaTrader 5 headless — cuenta ${MT_LOGIN} en ${MT_SERVER}"
 echo "[ATLAS] Riesgo ${ATLAS_RISK}%/op · limite diario ${ATLAS_DAILY_LOSS}% · kill switch ${ATLAS_MAX_DD}%"
 
-# Terminal en segundo plano bajo pantalla virtual
-xvfb-run -a --server-args="-screen 0 1280x1024x24" \
-  wine 'C:\mt5\terminal64.exe' /portable '/config:C:\mt5\atlas.ini' &
+# Pantalla virtual INDEPENDIENTE del terminal: el auto-update de MT5
+# (liveupdate) mata y relanza terminal64.exe; con xvfb-run el X moría
+# junto al primer proceso y el updater quedaba sin pantalla → crash loop.
+Xvfb :99 -screen 0 1280x1024x24 &
+sleep 2
+
+wine 'C:\mt5\terminal64.exe' /portable '/config:C:\mt5\atlas.ini' &
 MT_PID=$!
 
 # Volcar el diario del bot a la salida del contenedor (docker logs)
@@ -83,4 +97,18 @@ mkdir -p "$LOGDIR"
 ) &
 
 trap 'echo "[ATLAS] Deteniendo..."; pkill -f terminal64.exe; exit 0' SIGTERM SIGINT
-wait $MT_PID
+
+# Espera resiliente: si el terminal muere (p.ej. por auto-update), dar una
+# ventana para que el updater lo relance antes de dar el contenedor por caído.
+while true; do
+  sleep 15
+  if ! pgrep -f terminal64.exe >/dev/null 2>&1; then
+    echo "[ATLAS] terminal64 no está; espero 45 s por si el auto-update lo relanza..."
+    sleep 45
+    if ! pgrep -f terminal64.exe >/dev/null 2>&1; then
+      echo "[ATLAS] terminal64 no volvió; salgo para que Docker reinicie limpio."
+      break
+    fi
+    echo "[ATLAS] terminal64 relanzado (auto-update completado)."
+  fi
+done
