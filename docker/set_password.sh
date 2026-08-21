@@ -35,7 +35,7 @@ umask 077
   printf 'ATLAS_SYMBOLS=XAUUSD,EURUSD\n'
   printf 'ATLAS_RISK=1.5\n'
   printf 'ATLAS_DAILY_LOSS=5.0\n'
-  printf 'ATLAS_MAX_DD=30.0\n'
+  printf 'ATLAS_MAX_DD=50.0\n'
 } > "$ENVFILE"
 chmod 600 "$ENVFILE"
 unset MT_PASSWORD
