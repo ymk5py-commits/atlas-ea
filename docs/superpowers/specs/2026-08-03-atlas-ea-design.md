@@ -278,3 +278,26 @@ sin cambios). El que sí gana horas nuevas es el motor de Tendencia, que ahora p
 operar en tramos de mercado (madrugada asiática, última hora de NY) que nunca formaron
 parte de la muestra que dio +22.7%. Monitorear especialmente el rendimiento en esas
 horas nuevas vs. las horas ya validadas en los próximos informes/ciclos de optimización.
+
+## 12. REVERTIDO — addendum v1.1 descartado por evidencia (2026-08-21)
+
+El propio usuario pidió probar el addendum v1.1 por backtest. Resultado (servidor,
+2023-2026, mismos parámetros, única variable = ventana horaria):
+
+| Config | Balance final | Trades | DD máx |
+|---|---|---|---|
+| Núcleo (sin scalp), ventana VIEJA 8-20 | 613.47 (+22.7%) | 917 | 23.9% |
+| Núcleo (sin scalp), ventana NUEVA 1-23 | 296.41 (−40.7%) | 1321 | 47.1% |
+| Todo (con scalp), ventana NUEVA 1-23 | 18.41 (−96.3%) | 41+1079 scalp | 81.9% |
+
+Ampliar el horario **perjudicó de forma clara e inequívoca** — no fue ruido ni una
+racha. `InpSessionStart`/`InpSessionEnd` **revertidos a 8/20** (commit posterior a
+este). El addendum v1.1 queda como registro histórico de un experimento descartado,
+no como configuración vigente — ver spec vigente en la sección 10.
+
+**Hallazgo adicional, aún sin resolver:** la fila "todo con scalp, ventana nueva" es
+la que estuvo desplegada en vivo — perder 96% contra histórico es una señal seria de
+que el módulo de scalping (nunca backtesteado, solo validado por ~2 días de demo en
+vivo) puede tener expectativa negativa a largo plazo, o interactuar mal con ventanas
+horarias amplias. Pendiente: correr scalp+ventana-VIEJA aislado para separar ambas
+variables antes de confiar en el scalping a largo plazo.
