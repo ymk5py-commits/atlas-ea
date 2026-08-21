@@ -31,8 +31,8 @@ void OnStart()
    PrintFormat("HORA    : servidor %s (GMT%+d) | GMT %s | local terminal %s",
                TimeToString(srv, TIME_DATE | TIME_MINUTES), offset,
                TimeToString(gmt, TIME_MINUTES), TimeToString(TimeLocal(), TIME_MINUTES));
-   PrintFormat("SESION  : el bot opera 08:00-20:00 hora servidor = %02d:00-%02d:00 en Paraguay (GMT-3)",
-               (8 - offset - 3 + 24) % 24, (20 - offset - 3 + 24) % 24);
+   PrintFormat("SESION  : Tendencia/Ruptura opera 01:00-23:00 hora servidor = %02d:00-%02d:00 en Paraguay (GMT-3, casi 24h)",
+               (1 - offset - 3 + 24) % 24, (23 - offset - 3 + 24) % 24);
 
    //--- 3) Notificaciones push
    bool notifOk = TerminalInfoInteger(TERMINAL_NOTIFICATIONS_ENABLED);

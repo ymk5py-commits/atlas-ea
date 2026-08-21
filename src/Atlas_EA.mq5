@@ -52,8 +52,8 @@ input double InpAtrSlMult        = 1.5;             // Stop loss: multiplicador 
 input double InpMaxRangeAtrMult  = 1.2;             // Rango asiatico max (x ATR H1)
 
 input group "Sesion y noticias (hora del SERVIDOR)"
-input int    InpSessionStart     = 8;               // Inicio ventana de entradas
-input int    InpSessionEnd       = 20;              // Fin ventana de entradas
+input int    InpSessionStart     = 1;               // Inicio ventana de entradas (casi 24h, evita rollover)
+input int    InpSessionEnd       = 23;              // Fin ventana de entradas (casi 24h, evita rollover)
 input int    InpFridayLastEntry  = 18;              // Viernes: ultima hora de entrada
 input int    InpFridayClose      = 21;              // Viernes: cerrar todo desde
 input long   InpMaxSpreadGold    = 400;             // Spread max XAUUSD (points)

@@ -264,3 +264,17 @@ en períodos independientes (2023-2024: +17.5% / 2025-2026: +22.0%, 930 trades).
 **Resultado del backtest final (todas las protecciones activas):** 2023.01→2026.07,
 500→613.47 USD (+22.7%), 917 trades, DD máx 23.9%, kill switch 0 disparos.
 **Expectativa comunicada al usuario: 6-16% anual con rachas de −15 a −25%.**
+
+## 11. Addendum v1.1 (2026-08-21) — ventana horaria ampliada SIN backtest
+
+Por decisión explícita del usuario (informado del riesgo), `InpSessionStart`/`InpSessionEnd`
+pasaron de **8–20** (Londres+NY, la ventana que sí validó el backtest de la sección 10) a
+**1–23 hora servidor** (casi 24h, mismo patrón que ya usaba el scalping — cubre Tokio,
+Londres y Nueva York completos, solo pausa ~2h en el rollover).
+
+**Esto NO está validado por backtest.** El motor de Ruptura no se ve afectado en la
+práctica (su ventana de entrada real la controlan `InpAsiaStart/InpAsiaEnd/InpBreakEnd`,
+sin cambios). El que sí gana horas nuevas es el motor de Tendencia, que ahora puede
+operar en tramos de mercado (madrugada asiática, última hora de NY) que nunca formaron
+parte de la muestra que dio +22.7%. Monitorear especialmente el rendimiento en esas
+horas nuevas vs. las horas ya validadas en los próximos informes/ciclos de optimización.
