@@ -13,11 +13,13 @@ private:
    int               m_friCloseHour;       // viernes: cerrar todo desde esta hora
    long              m_maxSpreadGold;      // spread máx XAUUSD (points)
    long              m_maxSpreadEur;       // spread máx EURUSD (points)
+   long              m_maxSpreadIndex;     // spread máx índices US (points)
 
 public:
    void Init(const int startHour, const int endHour,
              const int friLastEntryHour, const int friCloseHour,
-             const long maxSpreadGold, const long maxSpreadEur)
+             const long maxSpreadGold, const long maxSpreadEur,
+             const long maxSpreadIndex)
      {
       m_startHour        = startHour;
       m_endHour          = endHour;
@@ -25,13 +27,24 @@ public:
       m_friCloseHour     = friCloseHour;
       m_maxSpreadGold    = maxSpreadGold;
       m_maxSpreadEur     = maxSpreadEur;
+      m_maxSpreadIndex   = maxSpreadIndex;
      }
 
-   //--- Spread máximo configurado para un símbolo (heurística XAU vs FX)
+   //--- Spread máximo configurado para un símbolo (por tipo de instrumento)
    long MaxSpreadFor(const string symbol) const
      {
-      if(StringFind(symbol, "XAU") >= 0 || StringFind(symbol, "GOLD") >= 0)
+      string u = symbol;
+      StringToUpper(u);
+      if(StringFind(u, "XAU") >= 0 || StringFind(u, "GOLD") >= 0)
          return m_maxSpreadGold;
+      //--- índices US (nombres típicos entre brokers: US30/US100/US500,
+      //--- USTEC/USTECH, NAS100/NDX, SPX500, DJ30, WS30)
+      if(StringFind(u, "US30") >= 0 || StringFind(u, "US100") >= 0 ||
+         StringFind(u, "US500") >= 0 || StringFind(u, "USTEC") >= 0 ||
+         StringFind(u, "NAS") >= 0 || StringFind(u, "NDX") >= 0 ||
+         StringFind(u, "SPX") >= 0 || StringFind(u, "DJ") >= 0 ||
+         StringFind(u, "WS30") >= 0)
+         return m_maxSpreadIndex;
       return m_maxSpreadEur;
      }
 

@@ -52,7 +52,7 @@ void TestRatingScale()
 void TestSessionFilter()
   {
    CSessionFilter sf;
-   sf.Init(8, 20, 18, 21, 400, 20);
+   sf.Init(8, 20, 18, 21, 400, 20, 600);
 
    datetime monday10   = StringToTime("2026.08.03 10:00");  // lunes
    datetime monday06   = StringToTime("2026.08.03 06:00");

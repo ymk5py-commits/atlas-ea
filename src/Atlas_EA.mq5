@@ -58,6 +58,7 @@ input int    InpFridayLastEntry  = 18;              // Viernes: ultima hora de e
 input int    InpFridayClose      = 21;              // Viernes: cerrar todo desde
 input long   InpMaxSpreadGold    = 400;             // Spread max XAUUSD (points)
 input long   InpMaxSpreadEur     = 20;              // Spread max EURUSD (points)
+input long   InpMaxSpreadIndex   = 600;             // Spread max indices US (points)
 input int    InpNewsBlockMin     = 30;              // Bloqueo +/- minutos por noticia
 // Solo pausan eventos HIGH cuyo nombre matchee (CSV, vacio = todos)
 input string InpNewsKeywords     = "CPI,NFP,NONFARM,PAYROLL,FOMC,INTEREST RATE,RATE DECISION,UNEMPLOYMENT,GDP,PCE,RETAIL SALES";
@@ -212,7 +213,7 @@ int OnInit()
    //--- Módulos globales
    g_notifier.Init(InpEnablePush);
    g_session.Init(InpSessionStart, InpSessionEnd, InpFridayLastEntry, InpFridayClose,
-                  InpMaxSpreadGold, InpMaxSpreadEur);
+                  InpMaxSpreadGold, InpMaxSpreadEur, InpMaxSpreadIndex);
    g_risk.Init(InpRiskPct, InpDailyLossPct, InpMaxDrawdownPct, InpMaxTotalRiskPct,
                InpMaxTradesPerDay, InpMaxPositions, InpResetKillSwitch,
                GetPointer(g_notifier), g_symbols);
