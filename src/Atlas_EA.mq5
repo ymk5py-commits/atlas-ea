@@ -26,7 +26,7 @@
 
 //=== Inputs ========================================================
 input group "General"
-input string InpSymbols          = "XAUUSD,EURUSD"; // Simbolos (separados por coma)
+input string InpSymbols          = "EURUSD";        // Simbolos (separados por coma)
 input bool   InpEnablePush       = true;            // Notificaciones push al celular
 input int    InpDeviationPoints  = 20;              // Slippage maximo (points)
 
@@ -46,15 +46,15 @@ input double InpPartialR         = 1.0;             // Cierre parcial al llegar 
 input double InpTrailAtrMult     = 2.0;             // Trailing: multiplicador ATR
 
 input group "Estrategias"
-input bool   InpEnableTrend      = true;            // Estrategia de tendencia (pullback)
-input bool   InpEnableBreakout   = true;            // Estrategia de ruptura asiatica
+input bool   InpEnableTrend      = false;           // Estrategia de tendencia (pullback)
+input bool   InpEnableBreakout   = false;           // Estrategia de ruptura asiatica
 input double InpAdxTrend         = 22.0;            // ADX H1 minimo para tendencia
 input double InpSqueezeRatio     = 0.75;            // Compresion: ancho BB < ratio x prom
 input double InpAtrSlMult        = 1.5;             // Stop loss: multiplicador ATR M15
 input double InpMaxRangeAtrMult  = 1.2;             // Rango asiatico max (x ATR H1)
 
 input group "Smart Money (estructura + Order Block / FVG)"
-input bool   InpEnableSmc        = true;   // Activar Smart Money (tiene prioridad sobre tendencia)
+input bool   InpEnableSmc        = false;  // Activar Smart Money (tiene prioridad sobre CRT)
 input int    InpSmcFractal       = 2;      // Amplitud del swing fractal (velas a cada lado)
 input int    InpSmcLookback      = 160;    // Velas M15 analizadas (estructura)
 input int    InpSmcMaxAgeBars    = 20;     // Antiguedad max del BOS/CHoCH (velas M15)
@@ -83,11 +83,14 @@ input bool   InpCrtNeedRejection = true;   // Exigir vela de rechazo en M15
 input bool   InpCrtFollowRegime  = true;   // No operar la purga a contramano de la tendencia H1
 input int    InpCrtTvFilter      = 0;      // Confluencia rating TV: 0=ninguna, 1=solo H1, 2=M15+H1
 
-input group "Sesion y noticias (hora del SERVIDOR)"
-input int    InpSessionStart     = 8;               // Inicio ventana de entradas (Londres+NY, validado por backtest)
-input int    InpSessionEnd       = 20;              // Fin ventana de entradas (Londres+NY, validado por backtest)
-input int    InpFridayLastEntry  = 18;              // Viernes: ultima hora de entrada
-input int    InpFridayClose      = 21;              // Viernes: cerrar todo desde
+input group "Sesion y noticias"
+input bool   InpSessionInNY      = true;            // Ventana de entradas en hora de NUEVA YORK (false = hora del servidor)
+input int    InpServerGmtOffset  = 99;              // Desfase del servidor vs UTC en horas; 99 = detectar solo
+input int    InpLocalGmtOffset   = -3;              // Tu huso horario (solo para mostrar horas en el panel). Paraguay = -3
+input int    InpSessionStart     = 8;               // Inicio ventana de entradas (apertura de Nueva York)
+input int    InpSessionEnd       = 17;              // Fin ventana de entradas (cierre de Nueva York)
+input int    InpFridayLastEntry  = 15;              // Viernes: ultima hora de entrada
+input int    InpFridayClose      = 16;              // Viernes: cerrar todo desde
 input long   InpMaxSpreadGold    = 400;             // Spread max XAUUSD (points)
 input long   InpMaxSpreadEur     = 20;              // Spread max EURUSD (points)
 input long   InpMaxSpreadIndex   = 600;             // Spread max indices US (points)
@@ -99,7 +102,7 @@ input int    InpAsiaEnd          = 8;               // Rango asiatico: hora fin
 input int    InpBreakEnd         = 15;              // Fin ventana de ruptura
 
 input group "Scalping (estilo manual, hora del SERVIDOR)"
-input bool   InpEnableScalp      = true;            // Activar modo scalping M1
+input bool   InpEnableScalp      = false;           // Activar modo scalping M1
 input string InpScalpSymbols     = "XAUUSD";        // Simbolos a scalpear (subset de InpSymbols)
 input double InpScalpRiskPct     = 1.0;             // Riesgo por scalp (% equity)
 input double InpScalpRR          = 1.0;             // TP del scalp (en R)
@@ -171,7 +174,10 @@ bool IsScalpSymbol(const string symbol)
    return false;
   }
 
-//--- Ventana horaria del scalping (independiente de la sesion swing)
+//--- Ventana horaria del scalping. InpScalpStart/End siguen siendo HORA
+//--- DEL SERVIDOR (se eligieron para esquivar el rollover del broker),
+//--- asi que el corte del viernes hay que traducirlo: viene expresado en
+//--- la zona en que se define la sesion, que puede ser Nueva York.
 bool ScalpSessionOK(const datetime now)
   {
    MqlDateTime dt;
@@ -180,7 +186,7 @@ bool ScalpSessionOK(const datetime now)
       return false;
    if(dt.hour < InpScalpStart || dt.hour >= InpScalpEnd)
       return false;
-   if(dt.day_of_week == 5 && dt.hour >= InpFridayLastEntry)
+   if(dt.day_of_week == 5 && dt.hour >= g_session.SessionHourToServerHour(InpFridayLastEntry))
       return false;                       // viernes: sin scalps tarde
    return true;
   }
@@ -265,7 +271,8 @@ int OnInit()
    //--- Módulos globales
    g_notifier.Init(InpEnablePush);
    g_session.Init(InpSessionStart, InpSessionEnd, InpFridayLastEntry, InpFridayClose,
-                  InpMaxSpreadGold, InpMaxSpreadEur, InpMaxSpreadIndex);
+                  InpMaxSpreadGold, InpMaxSpreadEur, InpMaxSpreadIndex,
+                  InpSessionInNY, InpServerGmtOffset);
    g_risk.Init(InpRiskPct, InpDailyLossPct, InpMaxDrawdownPct, InpMaxTotalRiskPct,
                InpMaxTradesPerDay, InpMaxPositions, InpResetKillSwitch,
                GetPointer(g_notifier), g_symbols);
@@ -332,6 +339,20 @@ int OnInit()
          InpSmcFractal, (InpSmcRequireHtf ? "si" : "no"), (InpSmcRequireSweep ? "si" : "no"),
          (InpSmcRequireDisc ? "si" : "no"), (InpSmcAllowChoppy ? "si" : "no"),
          (InpSmcTvFilter == 0 ? "ninguna" : (InpSmcTvFilter == 1 ? "solo H1" : "M15+H1"))));
+   if(InpSessionInNY)
+      g_notifier.Log(StringFormat(
+         "Sesion NUEVA YORK %02d-%02dh = servidor %02d-%02dh = tu hora (UTC%+d) %02d-%02dh | servidor detectado UTC%+d | horario de verano EE.UU.: %s",
+         InpSessionStart, InpSessionEnd,
+         g_session.SessionHourToServerHour(InpSessionStart),
+         g_session.SessionHourToServerHour(InpSessionEnd),
+         InpLocalGmtOffset,
+         g_session.SessionHourToLocalHour(InpSessionStart, InpLocalGmtOffset),
+         g_session.SessionHourToLocalHour(InpSessionEnd, InpLocalGmtOffset),
+         g_session.ServerOffsetSec() / 3600,
+         (IsUsDst((datetime)((long)TimeTradeServer() - (long)g_session.ServerOffsetSec())) ? "si" : "no")));
+   else
+      g_notifier.Log(StringFormat("Sesion en hora del SERVIDOR %02d-%02dh",
+                                  InpSessionStart, InpSessionEnd));
    if(InpEnableCrt)
       g_notifier.Log(StringFormat(
          "CRT ACTIVO | vela-rango %s | modo %s | purga max %.0f%% del rango | recorrido min %.1fR | premium/descuento: %s | sigue al regimen: %s",
@@ -510,10 +531,14 @@ bool EvaluateSymbol(const int idx)
    string symbol = g_symbols[idx];
 
    //--- Datos listos?
-   if(!g_tvM15[idx].Ready() || !g_tvH1[idx].Ready() ||
-      !g_regime[idx].Ready() || !g_trend[idx].Ready() || !g_breakout[idx].Ready() ||
-      (InpEnableSmc && !g_smc[idx].Ready()) ||
-      (InpEnableCrt && !g_crt[idx].Ready()))
+   //--- Solo se exige historia a los modulos ENCENDIDOS: una estrategia
+   //--- apagada (p.ej. tendencia, que necesita 200 velas de H1) no debe
+   //--- frenar el arranque de las demas.
+   if(!g_tvM15[idx].Ready() || !g_tvH1[idx].Ready() || !g_regime[idx].Ready() ||
+      (InpEnableTrend    && !g_trend[idx].Ready())    ||
+      (InpEnableBreakout && !g_breakout[idx].Ready()) ||
+      (InpEnableSmc      && !g_smc[idx].Ready())      ||
+      (InpEnableCrt      && !g_crt[idx].Ready()))
      {
       LogTransient(idx, symbol + ": historia/indicadores aun cargando, reintento en esta vela.");
       return false;
@@ -529,7 +554,7 @@ bool EvaluateSymbol(const int idx)
    //--- Gates de contexto
    if(g_session.MustCloseAll())
       return true;
-   if(!g_session.EntryAllowedAt(TimeTradeServer()))
+   if(!g_session.EntryAllowedNow())
      {
       g_notifier.Log(symbol + ": fuera de sesion, sin entradas.");
       return true;
@@ -728,8 +753,16 @@ void UpdateDashboard()
      { state = "LIMITE DIARIO ALCANZADO — sin entradas hasta manana"; stateColor = clrOrange; }
    else if(g_news.IsBlocked())
      { state = "PAUSA POR NOTICIA: " + g_news.BlockingEventName(); stateColor = clrOrange; }
-   else if(!g_session.EntryAllowedAt(TimeTradeServer()))
+   else if(!g_session.EntryAllowedNow())
      { state = "FUERA DE SESION"; stateColor = clrSilver; }
+
+   string sessionLine = StringFormat("%s %02d-%02dh  (servidor %02d-%02dh · vos %02d-%02dh)",
+                        (g_session.UsesNewYork() ? "NUEVA YORK" : "SERVIDOR"),
+                        InpSessionStart, InpSessionEnd,
+                        g_session.SessionHourToServerHour(InpSessionStart),
+                        g_session.SessionHourToServerHour(InpSessionEnd),
+                        g_session.SessionHourToLocalHour(InpSessionStart, InpLocalGmtOffset),
+                        g_session.SessionHourToLocalHour(InpSessionEnd, InpLocalGmtOffset));
 
    string newsDesc = "";
    datetime newsWhen = 0;
@@ -740,5 +773,6 @@ void UpdateDashboard()
    g_dash.Update(state, stateColor,
                  AccountInfoDouble(ACCOUNT_EQUITY), g_risk.DayPnLPct(),
                  g_risk.DrawdownFromPeakPct(), g_risk.OpenRiskPct(),
-                 newsLine, g_symbols, regimes, ratings, smc, crt, positions, trades);
+                 newsLine, sessionLine, g_symbols, regimes, ratings, smc, crt,
+                 positions, trades);
   }

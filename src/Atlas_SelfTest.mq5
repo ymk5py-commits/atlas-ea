@@ -188,6 +188,70 @@ void TestCrtHelpers()
   }
 
 //+------------------------------------------------------------------+
+//| Zona horaria: cambio de horario de EE.UU. y conversion de sesion  |
+//+------------------------------------------------------------------+
+void TestTimezone()
+  {
+   //--- Ubicacion de los domingos de transicion
+   Assert(NthWeekdayOfMonth(2026, 3, 0, 2)  == StringToTime("2026.03.08 00:00"),
+          "DST: 2do domingo de marzo 2026 = 8-mar");
+   Assert(NthWeekdayOfMonth(2026, 11, 0, 1) == StringToTime("2026.11.01 00:00"),
+          "DST: 1er domingo de noviembre 2026 = 1-nov");
+   Assert(NthWeekdayOfMonth(2025, 3, 0, 2)  == StringToTime("2025.03.09 00:00"),
+          "DST: 2do domingo de marzo 2025 = 9-mar");
+   Assert(NthWeekdayOfMonth(2027, 3, 0, 2)  == StringToTime("2027.03.14 00:00"),
+          "DST: 2do domingo de marzo 2027 = 14-mar");
+
+   //--- Vigencia del horario de verano (los instantes van en UTC)
+   Assert(IsUsDst(StringToTime("2026.03.08 06:59")) == false, "DST: un minuto antes todavia es invierno");
+   Assert(IsUsDst(StringToTime("2026.03.08 07:00")) == true,  "DST: arranca a las 07:00 UTC");
+   Assert(IsUsDst(StringToTime("2026.07.15 12:00")) == true,  "DST: julio es verano");
+   Assert(IsUsDst(StringToTime("2026.11.01 05:59")) == true,  "DST: un minuto antes todavia es verano");
+   Assert(IsUsDst(StringToTime("2026.11.01 06:00")) == false, "DST: termina a las 06:00 UTC");
+   Assert(IsUsDst(StringToTime("2026.01.15 12:00")) == false, "DST: enero es invierno");
+   Assert(IsUsDst(StringToTime("2026.12.15 12:00")) == false, "DST: diciembre es invierno");
+
+   Assert(NewYorkGmtOffset(StringToTime("2026.07.15 12:00")) == -4 * 3600,
+          "NY: en verano esta a UTC-4");
+   Assert(NewYorkGmtOffset(StringToTime("2026.01.15 12:00")) == -5 * 3600,
+          "NY: en invierno esta a UTC-5");
+
+   //--- Lo que importa: la MISMA hora de Nueva York sale bien con brokers
+   //--- en husos distintos y en estaciones distintas.
+   CSessionFilter ny3;                    // servidor UTC+3 (EET verano)
+   ny3.Init(8, 17, 15, 16, 400, 20, 600, true, 3);
+   CSessionFilter ny2;                    // servidor UTC+2 (EET invierno)
+   ny2.Init(8, 17, 15, 16, 400, 20, 600, true, 2);
+
+   Assert(ny3.ToSessionTime(StringToTime("2026.07.15 15:00")) == StringToTime("2026.07.15 08:00"),
+          "zona: servidor UTC+3 15:00 en julio = 08:00 de Nueva York");
+   Assert(ny2.ToSessionTime(StringToTime("2026.01.15 15:00")) == StringToTime("2026.01.15 08:00"),
+          "zona: servidor UTC+2 15:00 en enero = la MISMA apertura de Nueva York");
+   Assert(ny3.ToSessionTime(StringToTime("2026.07.15 20:00")) == StringToTime("2026.07.15 13:00"),
+          "zona: servidor UTC+3 20:00 en julio = 13:00 de Nueva York");
+
+   //--- Y la ventana de entradas se evalua sobre la hora ya convertida
+   Assert(ny3.EntryAllowedAt(ny3.ToSessionTime(StringToTime("2026.07.15 15:00"))) == true,
+          "sesion NY: miercoles en la apertura permite entrar");
+   Assert(ny3.EntryAllowedAt(ny3.ToSessionTime(StringToTime("2026.07.15 09:00"))) == false,
+          "sesion NY: 02:00 de Nueva York NO permite (aun no abrio)");
+   Assert(ny3.EntryAllowedAt(ny3.ToSessionTime(StringToTime("2026.07.17 20:00"))) == true,
+          "sesion NY: viernes 13:00 todavia permite entrar");
+   Assert(ny3.EntryAllowedAt(ny3.ToSessionTime(StringToTime("2026.07.17 23:00"))) == false,
+          "sesion NY: viernes 16:00 ya no permite entrar");
+   Assert(ny3.MustCloseAllAt(ny3.ToSessionTime(StringToTime("2026.07.17 23:00"))) == true,
+          "sesion NY: viernes 16:00 cierra todo");
+
+   //--- Con el modo apagado nada se convierte (comportamiento historico)
+   CSessionFilter srv;
+   srv.Init(8, 20, 18, 21, 400, 20, 600);
+   Assert(srv.ToSessionTime(StringToTime("2026.07.15 15:00")) == StringToTime("2026.07.15 15:00"),
+          "zona: en modo servidor la hora pasa sin tocar");
+   Assert(srv.UsesNewYork() == false, "zona: modo servidor por defecto");
+   Assert(ny3.UsesNewYork() == true,  "zona: modo Nueva York cuando se pide");
+  }
+
+//+------------------------------------------------------------------+
 void TestSizing(const string symbol, CRiskManager &risk)
   {
    if(!SymbolSelect(symbol, true))
@@ -384,6 +448,7 @@ void OnStart()
    TestSmcHelpers();
    TestSmcStructure();
    TestCrtHelpers();
+   TestTimezone();
 
    CNotifier notifier;
    notifier.Init(false);

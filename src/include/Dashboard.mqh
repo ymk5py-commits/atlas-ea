@@ -54,6 +54,7 @@ public:
    void Update(const string globalState, const color stateColor,
                const double equity, const double dayPnlPct, const double ddPct,
                const double openRiskPct, const string nextNews,
+               const string sessionWindow,
                const string &symbols[], const string &regimes[],
                const string &ratings[], const string &smc[],
                const string &crt[], const string &positions[],
@@ -72,6 +73,7 @@ public:
               (dayPnlPct >= 0.0 ? cGood : cBad));
       SetLine(i++, StringFormat("DD pico: %.1f%%     Riesgo abierto: %.1f%%", ddPct, openRiskPct),
               (ddPct < 10.0 ? cVal : cWarn));
+      SetLine(i++, "Sesion : " + sessionWindow, cWhite);
       SetLine(i++, "Noticia: " + (nextNews == "" ? "sin eventos proximos" : nextNews), cWhite);
       SetLine(i++, "--------------------------------------------------", cWhite);
       for(int s = 0; s < ArraySize(symbols); s++)

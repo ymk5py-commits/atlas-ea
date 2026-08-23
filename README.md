@@ -1,28 +1,54 @@
-# ATLAS EA — Bot de trading para MetaTrader 5 (oro + EURUSD)
+# ATLAS EA — Bot de trading para MetaTrader 5 (EURUSD, sesión de Nueva York)
 
-Bot híbrido adaptativo que opera **XAUUSD** y **EURUSD** en intradía (M15 con tendencia
-H1/H4), con gestión de riesgo estricta: límite de pérdida diaria, kill switch por
-drawdown, filtro de noticias y cierre pre-fin de semana.
+Bot de trading intradía con gestión de riesgo estricta: límite de pérdida diaria, kill
+switch por drawdown, filtro de noticias y cierre pre-fin de semana.
 
-**Estrategias que corren en paralelo:**
+## Configuración actual
 
-| Estrategia | Cuándo entra | Módulo |
-|---|---|---|
-| **Smart Money (SMC)** | Quiebre de estructura (BOS/CHoCH) con desplazamiento, y retroceso a un Order Block / FVG sin mitigar, en descuento (compras) o premium (ventas) | `SmcStrategy.mqh` |
-| **Candle Range Theory (CRT)** | Una vela de H4 define el rango; la siguiente purga un extremo cazando stops y vuelve adentro; se opera hacia el extremo opuesto, que es el objetivo | `CrtStrategy.mqh` |
-| **Tendencia** | Pullback a la EMA20 de M15 a favor de H1/H4, con RSI(9) recuperando 50 | `TrendStrategy.mqh` |
-| **Ruptura asiática** | Cierre M15 fuera del rango 1–8h en la ventana de Londres/NY | `BreakoutStrategy.mqh` |
-| **Scalping M1** | Momentum EMA9/EMA21 + RSI(7) en oro, salida en minutos | `ScalpStrategy.mqh` |
+| | |
+|---|---|
+| **Símbolo** | EURUSD, únicamente |
+| **Estrategia** | Candle Range Theory (CRT), únicamente |
+| **Sesión** | Nueva York, 08:00–17:00 hora de NY |
 
-Un detector de régimen (ADX H1 / compresión de Bollinger M15) decide cuál aplica.
-El orden de prioridad es **SMC → CRT → estrategia del régimen**: los dos modelos
-estructurales van primero porque traen su propio contexto multi-temporal y son los más
-selectivos; si ninguno encuentra setup, entra la estrategia que corresponda al régimen.
-El scalping corre aparte, en su propia ventana horaria.
+Las demás estrategias siguen en el código y se encienden con un input, pero vienen
+**apagadas**:
+
+| Estrategia | Input | Default | Cuándo entra |
+|---|---|---|---|
+| **Candle Range Theory** | `InpEnableCrt` | **true** | Una vela de H4 define el rango; la siguiente purga un extremo cazando stops y vuelve adentro; se opera hacia el extremo opuesto, que es el objetivo |
+| Smart Money (SMC) | `InpEnableSmc` | false | Quiebre de estructura (BOS/CHoCH) con desplazamiento, y retroceso a un Order Block / FVG sin mitigar |
+| Tendencia | `InpEnableTrend` | false | Pullback a la EMA20 de M15 a favor de H1/H4, con RSI(9) recuperando 50 |
+| Ruptura asiática | `InpEnableBreakout` | false | Cierre M15 fuera del rango 1–8h |
+| Scalping M1 | `InpEnableScalp` | false | Momentum EMA9/EMA21 + RSI(7) en oro, salida en minutos |
+
+Si encendés más de una, el orden de prioridad es **SMC → CRT → estrategia del régimen**
+(un detector de ADX H1 / compresión de Bollinger M15 elige entre tendencia y ruptura).
 
 CRT es la única que fija su propio objetivo (el extremo opuesto del rango) en vez de
 dejar la salida al parcial + trailing; el break-even, el cierre parcial y el trailing
 siguen funcionando igual sobre esa posición.
+
+## La ventana horaria se define en hora de NUEVA YORK
+
+El bot **no** usa la hora de tu computadora ni la del bróker para decidir la sesión:
+vos ponés las horas en hora de Nueva York y él convierte solo. Deduce el huso del
+servidor comparando su reloj contra UTC, y le aplica el horario de verano de EE.UU.
+(segundo domingo de marzo → primer domingo de noviembre). O sea que la ventana **no se
+corre sola** cuando cambia la hora ni cuando el bróker cambia su propio horario.
+
+Con la ventana por defecto (08–17 de Nueva York), **en Paraguay (UTC-3)** eso cae en:
+
+| Época | Hora de Nueva York | Hora de Paraguay |
+|---|---|---|
+| Verano EE.UU. (marzo–noviembre) | 08:00–17:00 | **09:00–18:00** |
+| Invierno EE.UU. (noviembre–marzo) | 08:00–17:00 | **10:00–19:00** |
+
+Al arrancar, el bot escribe en la pestaña Expertos la ventana ya resuelta en las tres
+zonas (Nueva York, servidor y la tuya) y qué huso detectó. **Verificá esa línea la
+primera vez.** Si el huso detectado está mal (pasa si el reloj del sistema donde corre
+MT5 está mal configurado), forzalo con `InpServerGmtOffset` — por ejemplo `2` o `3` para
+un bróker europeo. El panel del gráfico muestra la misma ventana en todo momento.
 
 > ⚠️ **Advertencia:** el trading apalancado puede generar pérdidas. Ningún sistema
 > garantiza rentabilidad. Este bot se valida en **backtest** y **cuenta demo** antes de
@@ -95,20 +121,27 @@ MQL5/Experts/Atlas/
 
 ## Paso 5 — Activar el bot en demo
 
-1. Abrí un gráfico **XAUUSD** en temporalidad **M15** (una sola instancia del bot maneja
-   los dos símbolos — no lo pongas en dos gráficos).
+1. Abrí un gráfico **EURUSD** en temporalidad **M15** (una sola instancia del bot; no lo
+   pongas en varios gráficos).
 2. Botón **Algo Trading** de la barra superior: debe quedar **verde/activado**.
 3. Arrastrá `Atlas_EA` desde el Navegador al gráfico. En la ventana que aparece:
    - Pestaña "Común": tildá **"Permitir Algo Trading"**.
    - Pestaña "Parámetros de entrada": revisá los valores (vienen con los defaults
-     correctos del diseño). Si tu broker llama `GOLD` al oro, cambiá `InpSymbols` a
-     `GOLD,EURUSD`.
+     correctos). Si tu broker le pone sufijo al par (`EURUSD.a`, `EURUSD_i`…), corregí
+     `InpSymbols` con el nombre exacto que muestra Observación del mercado.
 4. OK. En la esquina superior derecha del gráfico debe aparecer una carita 🙂 (algo
    trading activo) y en el gráfico el **panel ATLAS** con el estado en vivo.
 
-**Qué esperar:** el bot analiza al cierre de cada vela de 15 minutos, opera solo en
-sesión de Londres/NY, y muchas velas la decisión correcta es NO operar. Un día típico
-tiene 0 a 4 operaciones por símbolo. Todo queda registrado en la pestaña Expertos.
+**Qué esperar:** el bot analiza al cierre de cada vela de 15 minutos y la enorme mayoría
+de las veces la decisión correcta es NO operar. Con la configuración actual — un solo
+símbolo, una sola estrategia y una ventana de 9 horas — es normal ver **1 a 3
+operaciones por semana**, y semanas enteras sin ninguna. No está roto: la línea `CRT`
+del panel dice en qué paso se frenó cada análisis. Todo queda registrado en la pestaña
+Expertos.
+
+Si querés más frecuencia sin cambiar de estrategia, la palanca más directa es
+`InpCrtTimeframe = PERIOD_H1`: con velas-rango de una hora hay unos 9 rangos por sesión
+en vez de 2.
 
 ## Paso 6 — Notificaciones push en tu celular
 
@@ -123,7 +156,7 @@ tiene 0 a 4 operaciones por símbolo. Todo queda registrado en la pestaña Exper
 1. En MT5: **Ver → Probador de estrategias** (⌘R).
 2. Configurar:
    - Asesor Experto: `Atlas\Atlas_EA`
-   - Símbolo: **XAUUSD** · Período: **M15**
+   - Símbolo: **EURUSD** · Período: **M15**
    - Fechas: **2023.01.01 → 2026.07.31**
    - Modelado: **"Cada tick basado en ticks reales"** (la primera vez descarga muchos
      datos — puede tardar)
@@ -149,7 +182,7 @@ tiene 0 a 4 operaciones por símbolo. Todo queda registrado en la pestaña Exper
 
 | Fase | Qué | Criterio para avanzar |
 |---|---|---|
-| 1. Backtest | 2023–2026, ticks reales | PF ≥ 1.3 · DD ≤ 25% · ≥ 100 ops |
+| 1. Backtest | 2023–2026, ticks reales | PF ≥ 1.3 · DD ≤ 25% · muestra suficiente de ops |
 | 2. Demo | 2–4 semanas en vivo | P&L positivo, cero violaciones de riesgo |
 | 3. Real | Decisión tuya | Empezar con riesgo 1% las primeras 2 semanas |
 
@@ -173,15 +206,19 @@ tiene 0 a 4 operaciones por símbolo. Todo queda registrado en la pestaña Exper
 | `InpCrtMaxPurgePct` | 40.0 | Purga máxima en % del rango; más profundo se considera ruptura real |
 | `InpCrtMinRR` | 1.5 | Recorrido mínimo al extremo opuesto para que el setup valga |
 | `InpCrtFollowRegime` | true | No operar la purga a contramano de la tendencia de H1 |
-| `InpSessionStart/End` | 8 / 20 | Ventana de entradas (hora del SERVIDOR del broker) |
-| `InpMaxSpreadGold/Eur` | 400 / 20 | Spread máximo tolerado (points) |
+| `InpSessionInNY` | true | Interpretar la ventana en hora de Nueva York (false = hora del servidor) |
+| `InpSessionStart/End` | 8 / 17 | Ventana de entradas, en hora de Nueva York |
+| `InpServerGmtOffset` | 99 | Huso del servidor; 99 = detectar solo. Forzalo si la detección falla |
+| `InpLocalGmtOffset` | -3 | Tu huso, solo para mostrar las horas en el panel (Paraguay = -3) |
+| `InpMaxSpreadEur` | 20 | Spread máximo tolerado en EURUSD (points) |
 
 ## Problemas frecuentes
 
 - **"simbolo no disponible"** al iniciar → el broker usa otro nombre (GOLD, XAUUSD.a…):
   corregir `InpSymbols`.
-- **No opera nunca** → revisar: Algo Trading activado (botón verde), hora del servidor
-  dentro de la sesión (8–20), pestaña Expertos para ver los motivos ("fuera de sesion",
+- **No opera nunca** → revisar: Algo Trading activado (botón verde), que sea horario de
+  la sesión de Nueva York (mirá la línea `Sesion` del panel, que la muestra en tu hora),
+  y la pestaña Expertos para ver los motivos ("fuera de sesion",
   "rating TV no confirma", etc. — el bot explica cada decisión).
 - **Smart Money no dispara nunca** → mirá la línea `SmartM.` del panel: dice en qué paso
   se frena ("esperando retroceso a la zona", "zona ya mitigada", "H1 no acompana",
