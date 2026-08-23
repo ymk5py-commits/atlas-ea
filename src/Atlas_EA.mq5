@@ -90,7 +90,7 @@ input group "Sesiones — que simbolo opera en que ventana"
 // en ninguna lista opera en hora del SERVIDOR con la ventana de respaldo.
 input string InpNewYorkSymbols   = "EURUSD";        // Simbolos que operan en la sesion de NUEVA YORK
 input int    InpNyStart          = 8;               // Nueva York: hora de inicio
-input int    InpNyEnd            = 17;              // Nueva York: hora de fin
+input int    InpNyEnd            = 13;              // Nueva York: hora de fin (13h = fin del solape con Londres)
 input string InpLondonSymbols    = "XAUUSD";        // Simbolos que operan en la sesion de LONDRES
 input int    InpLonStart         = 8;               // Londres: hora de inicio
 input int    InpLonEnd           = 17;              // Londres: hora de fin
@@ -104,8 +104,12 @@ input long   InpMaxSpreadGold    = 400;             // Spread max XAUUSD (points
 input long   InpMaxSpreadEur     = 20;              // Spread max EURUSD (points)
 input long   InpMaxSpreadIndex   = 600;             // Spread max indices US (points)
 input int    InpNewsBlockMin     = 30;              // Bloqueo +/- minutos por noticia
-// Solo pausan eventos HIGH cuyo nombre matchee (CSV, vacio = todos)
-input string InpNewsKeywords     = "CPI,NFP,NONFARM,PAYROLL,FOMC,INTEREST RATE,RATE DECISION,UNEMPLOYMENT,GDP,PCE,RETAIL SALES";
+input string InpNewsCurrencies   = "USD,EUR,GBP";  // Monedas cuyo calendario se vigila
+// Vacio = pausar ante CUALQUIER evento de alto impacto. Es el default y el
+// mas seguro: filtrar por nombre depende de como los escriba el calendario
+// de MT5 (y del idioma del terminal), asi que una lista puede no matchear
+// nada y dejar pasar justo el dato que mueve el mercado.
+input string InpNewsKeywords     = "";
 input int    InpAsiaStart        = 1;               // Rango asiatico: hora inicio
 input int    InpAsiaEnd          = 8;               // Rango asiatico: hora fin
 input int    InpBreakEnd         = 15;              // Fin ventana de ruptura
@@ -282,6 +286,17 @@ bool TryInitSymbol(const int i)
      }
 
    g_symReady[i] = true;
+
+   //--- Spread real contra el limite configurado. Los brokers cotizan el oro
+   //--- con 2 o 3 decimales segun el caso, asi que el mismo limite en points
+   //--- puede quedar diez veces mas flojo de lo previsto: hay que verlo.
+   long spNow = SymbolInfoInteger(s, SYMBOL_SPREAD);
+   long spMax = g_session[i].MaxSpreadFor(s);
+   g_notifier.Log(StringFormat("%s: spread actual %d points (limite %d, %d digitos)%s",
+                  s, spNow, spMax, (int)SymbolInfoInteger(s, SYMBOL_DIGITS),
+                  (spNow > 0 && spNow > spMax / 4
+                     ? " — ATENCION: cerca del limite, revisar si el limite es el correcto" : "")));
+
    g_cacheRegime[i] = "cargando historia...";
    g_cacheRating[i] = "cargando historia...";
    g_cacheSmc[i]    = (g_useSmc[i] ? "cargando historia..." : "desactivado");
@@ -317,7 +332,8 @@ int OnInit()
                GetPointer(g_notifier), g_symbols);
    g_trade.Init(InpDeviationPoints, InpRR, InpBeTriggerR, InpPartialR, InpTrailAtrMult,
                 GetPointer(g_notifier));
-   g_news.Init(InpNewsBlockMin, InpNewsKeywords, GetPointer(g_notifier));
+   g_news.Init(InpNewsBlockMin, InpNewsKeywords, InpNewsCurrencies,
+               GetPointer(g_notifier));
    g_dash.Init();
 
    //--- Módulos por símbolo

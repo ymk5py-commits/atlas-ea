@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| NewsFilter.mqh — Bloqueo por noticias de alto impacto (USD/EUR)  |
+//| NewsFilter.mqh — Bloqueo por noticias de alto impacto            |
 //| usando el calendario económico integrado de MT5.                 |
 //| LIMITACION: el calendario no existe en el Strategy Tester → en   |
 //| backtest este filtro queda desactivado (se valida en demo).      |
@@ -13,6 +13,7 @@ private:
    int               m_blockMinutes;      // ± minutos alrededor del evento
    CNotifier        *m_notifier;
    string            m_keywords[];        // solo bloquean eventos que matcheen
+   string            m_currencies[];      // monedas cuyo calendario se vigila
    datetime          m_lastCheck;
    bool              m_lastResult;
    string            m_lastEventName;
@@ -58,16 +59,12 @@ private:
       return false;
      }
 
-public:
-   void Init(const int blockMinutes, const string keywordsCsv, CNotifier *notifier)
+   //--- Parsea un CSV a un array, en mayusculas y sin espacios
+   void ParseCsv(const string csv, string &out[])
      {
-      m_blockMinutes  = blockMinutes;
-      m_notifier      = notifier;
-
-      //--- Parsear keywords (CSV, case-insensitive)
-      ArrayResize(m_keywords, 0);
+      ArrayResize(out, 0);
       string parts[];
-      int k = StringSplit(keywordsCsv, ',', parts);
+      int k = StringSplit(csv, ',', parts);
       for(int i = 0; i < k; i++)
         {
          string w = parts[i];
@@ -76,9 +73,53 @@ public:
          if(StringLen(w) == 0)
             continue;
          StringToUpper(w);
-         int sz = ArraySize(m_keywords);
-         ArrayResize(m_keywords, sz + 1);
-         m_keywords[sz] = w;
+         int sz = ArraySize(out);
+         ArrayResize(out, sz + 1);
+         out[sz] = w;
+        }
+     }
+
+   //--- Primer evento HIGH relevante en cualquiera de las monedas vigiladas
+   bool AnyCurrencyHasHighEvent(const datetime from, const datetime to,
+                                string &eventName, datetime &eventTime)
+     {
+      bool   found = false;
+      string bestName = "";
+      datetime bestTime = 0;
+      for(int c = 0; c < ArraySize(m_currencies); c++)
+        {
+         string nm = "";
+         datetime tm = 0;
+         if(!CurrencyHasHighEvent(m_currencies[c], from, to, nm, tm))
+            continue;
+         if(!found || tm < bestTime)      // el más próximo manda
+           {
+            found    = true;
+            bestName = m_currencies[c] + " " + nm;
+            bestTime = tm;
+           }
+        }
+      if(found)
+        {
+         eventName = bestName;
+         eventTime = bestTime;
+        }
+      return found;
+     }
+
+public:
+   void Init(const int blockMinutes, const string keywordsCsv,
+             const string currenciesCsv, CNotifier *notifier)
+     {
+      m_blockMinutes  = blockMinutes;
+      m_notifier      = notifier;
+
+      ParseCsv(keywordsCsv, m_keywords);
+      ParseCsv(currenciesCsv, m_currencies);
+      if(ArraySize(m_currencies) == 0)
+        {
+         ArrayResize(m_currencies, 1);
+         m_currencies[0] = "USD";         // nunca quedarse sin vigilancia
         }
       m_lastCheck     = 0;
       m_lastResult    = false;
@@ -103,9 +144,7 @@ public:
       string   name = "";
       datetime when = 0;
 
-      bool blocked = CurrencyHasHighEvent("USD", from, to, name, when);
-      if(!blocked)
-         blocked = CurrencyHasHighEvent("EUR", from, to, name, when);
+      bool blocked = AnyCurrencyHasHighEvent(from, to, name, when);
 
       if(blocked && !m_lastResult)
          m_notifier.Log("Pausa por noticia de alto impacto: " + name);
@@ -116,7 +155,7 @@ public:
 
    string BlockingEventName() const { return m_lastEventName; }
 
-   //--- Próximo evento HIGH USD/EUR en las próximas 12 h (para dashboard)
+   //--- Próximo evento HIGH de las monedas vigiladas, 12 h (dashboard)
    bool NextHighImpact(string &desc, datetime &when)
      {
       if(MQLInfoInteger(MQL_TESTER))
@@ -127,14 +166,10 @@ public:
          m_lastNextScan = now;
          m_nextEventTime = 0;
          m_nextEventName = "";
-         string nUsd = "", nEur = "";
-         datetime tUsd = 0, tEur = 0;
-         bool hasUsd = CurrencyHasHighEvent("USD", now, now + 12 * 3600, nUsd, tUsd);
-         bool hasEur = CurrencyHasHighEvent("EUR", now, now + 12 * 3600, nEur, tEur);
-         if(hasUsd && (!hasEur || tUsd <= tEur))
-           { m_nextEventTime = tUsd; m_nextEventName = "USD " + nUsd; }
-         else if(hasEur)
-           { m_nextEventTime = tEur; m_nextEventName = "EUR " + nEur; }
+         string   nm = "";
+         datetime tm = 0;
+         if(AnyCurrencyHasHighEvent(now, now + 12 * 3600, nm, tm))
+           { m_nextEventTime = tm; m_nextEventName = nm; }
         }
       if(m_nextEventTime == 0)
          return false;

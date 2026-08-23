@@ -7,10 +7,10 @@ switch por drawdown, filtro de noticias y cierre pre-fin de semana.
 
 Cada instrumento tiene **su propia sesión y sus propias estrategias**:
 
-| Símbolo | Sesión | Estrategias |
-|---|---|---|
-| **EURUSD** | Nueva York, 08:00–17:00 hora de NY | CRT |
-| **XAUUSD** (oro) | Londres, 08:00–17:00 hora de Londres | CRT + Smart Money |
+| Símbolo | Sesión | Estrategias | Por qué |
+|---|---|---|---|
+| **EURUSD** | Nueva York, **08:00–13:00** hora de NY | CRT | La ventana termina cuando cierra Londres: el EURUSD tiene recorrido mientras las dos plazas se solapan, y después se vuelve chato |
+| **XAUUSD** (oro) | Londres, **08:00–17:00** hora de Londres | CRT + Smart Money | Cubre la mañana de Londres (la franja más volátil del oro) y se extiende hasta el final del solape con Nueva York |
 
 Se configura con listas de símbolos, no con interruptores globales. Un símbolo puede
 figurar en varias listas de estrategia; para sacarlo de todo, bórralo de `InpSymbols`.
@@ -26,6 +26,26 @@ figurar en varias listas de estrategia; para sacarlo de todo, bórralo de `InpSy
 Cuando un símbolo lleva más de una estrategia, el orden de prioridad es
 **SMC → CRT → estrategia del régimen** (un detector de ADX H1 / compresión de Bollinger
 M15 elige entre tendencia y ruptura).
+
+### Por qué cada estrategia va donde va
+
+**CRT en las dos.** El modelo necesita un rango previo que la sesión salga a purgar, y
+eso es exactamente lo que hace la apertura de cada plaza. Con velas-rango de H4, la vela
+que le toca a cada sesión cae sola donde debe:
+
+| Sesión | Vela que hace de rango | Qué es |
+|---|---|---|
+| Londres, al abrir | 01:00–05:00 UTC | La **sesión asiática**, que Londres purga al abrir |
+| Nueva York, al abrir | 05:00–09:00 UTC | La **mañana de Londres**, que Nueva York purga al abrir |
+
+Por eso `InpCrtTimeframe` se queda en H4: no es un número elegido a dedo, es el que hace
+que el rango coincida con la sesión anterior en ambos casos. (Verificado para brókers en
+UTC+2 y UTC+3, en verano y en invierno.)
+
+**Smart Money solo en el oro.** SMC es un modelo de continuación: necesita un quiebre de
+estructura con desplazamiento y después un retroceso a la zona. Eso pide una sesión que
+expanda direccionalmente, que es el perfil de Londres y del oro. El EURUSD en la ventana
+de Nueva York se mueve en rango con más frecuencia, que es terreno de CRT.
 
 CRT es la única que fija su propio objetivo (el extremo opuesto del rango) en vez de
 dejar la salida al parcial + trailing; el break-even, el cierre parcial y el trailing
@@ -49,14 +69,18 @@ Con las ventanas por defecto, **en Paraguay (UTC-3)** las sesiones caen en:
 
 | Sesión | Época | Hora de Paraguay |
 |---|---|---|
-| Nueva York (EURUSD) | Verano EE.UU. (mar–nov) | **09:00–18:00** |
-| Nueva York (EURUSD) | Invierno EE.UU. (nov–mar) | **10:00–19:00** |
-| Londres (oro) | Verano Europa (mar–oct) | **04:00–13:00** |
-| Londres (oro) | Invierno Europa (oct–mar) | **05:00–14:00** |
+| Londres (oro) | Verano Europa | **04:00–13:00** |
+| Londres (oro) | Invierno Europa | **05:00–14:00** |
+| Nueva York (EURUSD) | Verano EE.UU. | **09:00–14:00** |
+| Nueva York (EURUSD) | Invierno EE.UU. | **10:00–15:00** |
+
+O sea: el bot arranca con el oro de madrugada, y de 09 a 13 (verano) tiene los dos
+instrumentos activos a la vez. Después de las 14 no opera nada.
 
 Ojo con la sesión de Londres: **arranca de madrugada para vos.** Si preferís operar el
-oro solo en la parte que se solapa con Nueva York (la franja más activa del oro), subí
-`InpLonStart` a `13` — eso es 13:00 de Londres, que es la apertura de Nueva York.
+oro solo en la parte que se solapa con Nueva York, subí `InpLonStart` a `13` — eso es
+13:00 de Londres, que es la apertura de Nueva York. Y si querés más operaciones en
+EURUSD a costa de calidad, `InpNyEnd = 17` devuelve la tarde de Nueva York.
 
 Al arrancar, el bot escribe en la pestaña Expertos **una línea por símbolo** con qué
 estrategias corre, en qué ventana, y esa ventana traducida a hora del servidor y a la
@@ -196,6 +220,20 @@ en vez de 2.
    En CRT probá además `InpCrtMode` en 0 (en vivo) y 1 (confirmado): el segundo entra
    más tarde pero solo después de que la vela de purga cerró dentro del rango.
 
+### Noticias
+
+El filtro vigila el calendario de **USD, EUR y GBP** (se agregó GBP porque el oro ahora
+opera la sesión de Londres, donde los datos del Reino Unido son la principal fuente de
+volatilidad programada) y pausa las entradas ±30 minutos alrededor de **cualquier**
+evento de alto impacto.
+
+Antes filtraba por una lista de palabras (`CPI`, `NFP`, `GDP`, `PCE`…). El problema es
+que el calendario de MT5 escribe los nombres completos —"Consumer Price Index", "Gross
+Domestic Product"— así que varias de esas abreviaturas **no matcheaban nada** y el filtro
+dejaba pasar justo los datos más grandes. Y si el terminal está en español los nombres
+cambian de nuevo. Bloquear todo evento de alto impacto cuesta poco (son pocos por
+semana) y no depende de cómo estén escritos.
+
 > **Nota:** el filtro de noticias no funciona en el backtest (limitación de MT5 — el
 > calendario económico no está disponible en el probador). En demo/real sí funciona.
 > Por eso los resultados de demo pueden ser levemente mejores que el backtest.
@@ -229,7 +267,7 @@ en vez de 2.
 | `InpCrtMinRR` | 1.5 | Recorrido mínimo al extremo opuesto para que el setup valga |
 | `InpCrtFollowRegime` | true | No operar la purga a contramano de la tendencia de H1 |
 | `InpNewYorkSymbols` | `EURUSD` | Símbolos que operan en la sesión de Nueva York |
-| `InpNyStart/End` | 8 / 17 | Ventana de Nueva York, en hora de Nueva York |
+| `InpNyStart/End` | 8 / 13 | Ventana de Nueva York, en hora de Nueva York |
 | `InpLondonSymbols` | `XAUUSD` | Símbolos que operan en la sesión de Londres |
 | `InpLonStart/End` | 8 / 17 | Ventana de Londres, en hora de Londres |
 | `InpFridayEntryCutH` | 2 | Viernes: sin entradas las últimas N horas de cada sesión |
@@ -237,6 +275,8 @@ en vez de 2.
 | `InpServerGmtOffset` | 99 | Huso del servidor; 99 = detectar solo. Forzalo si la detección falla |
 | `InpLocalGmtOffset` | -3 | Tu huso, solo para mostrar las horas en el panel (Paraguay = -3) |
 | `InpMaxSpreadEur` / `InpMaxSpreadGold` | 20 / 400 | Spread máximo tolerado (points) |
+| `InpNewsCurrencies` | `USD,EUR,GBP` | Monedas cuyo calendario económico se vigila |
+| `InpNewsKeywords` | *(vacío)* | Vacío = pausar ante cualquier evento de alto impacto |
 
 ## Problemas frecuentes
 
