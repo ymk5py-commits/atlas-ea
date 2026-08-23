@@ -417,6 +417,28 @@ public:
       CleanOrphanGVs();
      }
 
+   //--- Cierre de las posiciones propias de UN símbolo. Con sesiones
+   //--- distintas por instrumento, el corte del viernes llega a cada uno
+   //--- en su propio horario y no puede arrastrar a los demás.
+   void CloseSymbolOwn(const string symbol, const string reason)
+     {
+      int closed = 0;
+      for(int i = PositionsTotal() - 1; i >= 0; i--)
+        {
+         ulong ticket = PositionGetTicket(i);
+         if(ticket == 0 || PositionGetInteger(POSITION_MAGIC) != ATLAS_MAGIC)
+            continue;
+         if(PositionGetString(POSITION_SYMBOL) != symbol)
+            continue;
+         if(m_trade.PositionClose(ticket))
+            closed++;
+        }
+      if(closed > 0)
+         m_notifier.Notify(StringFormat("%s: %d posicion(es) cerrada(s): %s",
+                                        symbol, closed, reason));
+      CleanOrphanGVs();
+     }
+
    //--- Info de posición para el dashboard ("" si no hay)
    string PositionInfo(const string symbol)
      {

@@ -54,11 +54,10 @@ public:
    void Update(const string globalState, const color stateColor,
                const double equity, const double dayPnlPct, const double ddPct,
                const double openRiskPct, const string nextNews,
-               const string sessionWindow,
                const string &symbols[], const string &regimes[],
                const string &ratings[], const string &smc[],
-               const string &crt[], const string &positions[],
-               const int &tradesToday[])
+               const string &crt[], const string &sessions[],
+               const string &positions[], const int &tradesToday[])
      {
       color cWhite = clrSilver;
       color cVal   = clrWhite;
@@ -73,12 +72,12 @@ public:
               (dayPnlPct >= 0.0 ? cGood : cBad));
       SetLine(i++, StringFormat("DD pico: %.1f%%     Riesgo abierto: %.1f%%", ddPct, openRiskPct),
               (ddPct < 10.0 ? cVal : cWarn));
-      SetLine(i++, "Sesion : " + sessionWindow, cWhite);
       SetLine(i++, "Noticia: " + (nextNews == "" ? "sin eventos proximos" : nextNews), cWhite);
       SetLine(i++, "--------------------------------------------------", cWhite);
       for(int s = 0; s < ArraySize(symbols); s++)
         {
          SetLine(i++, StringFormat("%s  [%d ops hoy]", symbols[s], tradesToday[s]), cVal);
+         SetLine(i++, "  Sesion : " + sessions[s], cWhite);
          SetLine(i++, "  Regimen: " + regimes[s], cWhite);
          SetLine(i++, "  Rating : " + ratings[s], cWhite);
          SetLine(i++, "  SmartM.: " + smc[s], cWhite);

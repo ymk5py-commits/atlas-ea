@@ -54,7 +54,8 @@ void TestRatingScale()
 void TestSessionFilter()
   {
    CSessionFilter sf;
-   sf.Init(8, 20, 18, 21, 400, 20, 600);
+   //--- 8-20 hora del servidor; el viernes se recorta 2h para entrar y 1h para cerrar
+   sf.Init(SESION_SERVIDOR, 8, 20, 2, 1, 400, 20, 600);
 
    datetime monday10   = StringToTime("2026.08.03 10:00");  // lunes
    datetime monday06   = StringToTime("2026.08.03 06:00");
@@ -218,10 +219,10 @@ void TestTimezone()
 
    //--- Lo que importa: la MISMA hora de Nueva York sale bien con brokers
    //--- en husos distintos y en estaciones distintas.
-   CSessionFilter ny3;                    // servidor UTC+3 (EET verano)
-   ny3.Init(8, 17, 15, 16, 400, 20, 600, true, 3);
-   CSessionFilter ny2;                    // servidor UTC+2 (EET invierno)
-   ny2.Init(8, 17, 15, 16, 400, 20, 600, true, 2);
+   CSessionFilter ny3;                    // Nueva York, servidor UTC+3 (EET verano)
+   ny3.Init(SESION_NUEVA_YORK, 8, 17, 2, 1, 400, 20, 600, 3);
+   CSessionFilter ny2;                    // Nueva York, servidor UTC+2 (EET invierno)
+   ny2.Init(SESION_NUEVA_YORK, 8, 17, 2, 1, 400, 20, 600, 2);
 
    Assert(ny3.ToSessionTime(StringToTime("2026.07.15 15:00")) == StringToTime("2026.07.15 08:00"),
           "zona: servidor UTC+3 15:00 en julio = 08:00 de Nueva York");
@@ -242,13 +243,79 @@ void TestTimezone()
    Assert(ny3.MustCloseAllAt(ny3.ToSessionTime(StringToTime("2026.07.17 23:00"))) == true,
           "sesion NY: viernes 16:00 cierra todo");
 
-   //--- Con el modo apagado nada se convierte (comportamiento historico)
+   //--- El viernes se recorta desde el FIN de la sesion
+   Assert(ny3.FridayLastEntryHour() == 15, "viernes: ultima entrada = fin - 2h");
+   Assert(ny3.FridayCloseHour()     == 16, "viernes: cierre total = fin - 1h");
+
+   //--- En modo servidor nada se convierte (comportamiento historico)
    CSessionFilter srv;
-   srv.Init(8, 20, 18, 21, 400, 20, 600);
+   srv.Init(SESION_SERVIDOR, 8, 20, 2, 1, 400, 20, 600);
    Assert(srv.ToSessionTime(StringToTime("2026.07.15 15:00")) == StringToTime("2026.07.15 15:00"),
           "zona: en modo servidor la hora pasa sin tocar");
-   Assert(srv.UsesNewYork() == false, "zona: modo servidor por defecto");
-   Assert(ny3.UsesNewYork() == true,  "zona: modo Nueva York cuando se pide");
+   Assert(srv.ZoneName() == "SERVIDOR",   "zona: nombre de la plaza servidor");
+   Assert(ny3.ZoneName() == "NUEVA YORK", "zona: nombre de la plaza Nueva York");
+  }
+
+//+------------------------------------------------------------------+
+//| Londres: horario de verano europeo y convivencia con Nueva York   |
+//+------------------------------------------------------------------+
+void TestLondres()
+  {
+   //--- El horario europeo se ubica por el ULTIMO domingo, no el n-esimo
+   Assert(LastWeekdayOfMonth(2026, 3, 0)  == StringToTime("2026.03.29 00:00"),
+          "DST UE: ultimo domingo de marzo 2026 = 29-mar");
+   Assert(LastWeekdayOfMonth(2026, 10, 0) == StringToTime("2026.10.25 00:00"),
+          "DST UE: ultimo domingo de octubre 2026 = 25-oct");
+   Assert(LastWeekdayOfMonth(2025, 3, 0)  == StringToTime("2025.03.30 00:00"),
+          "DST UE: ultimo domingo de marzo 2025 = 30-mar");
+   Assert(LastWeekdayOfMonth(2027, 10, 0) == StringToTime("2027.10.31 00:00"),
+          "DST UE: ultimo domingo de octubre 2027 = 31-oct");
+
+   Assert(IsEuDst(StringToTime("2026.03.29 00:59")) == false, "DST UE: un minuto antes es invierno");
+   Assert(IsEuDst(StringToTime("2026.03.29 01:00")) == true,  "DST UE: arranca a las 01:00 UTC");
+   Assert(IsEuDst(StringToTime("2026.07.15 12:00")) == true,  "DST UE: julio es verano");
+   Assert(IsEuDst(StringToTime("2026.10.25 00:59")) == true,  "DST UE: un minuto antes todavia es verano");
+   Assert(IsEuDst(StringToTime("2026.10.25 01:00")) == false, "DST UE: termina a las 01:00 UTC");
+   Assert(IsEuDst(StringToTime("2026.01.15 12:00")) == false, "DST UE: enero es invierno");
+
+   Assert(LondonGmtOffset(StringToTime("2026.07.15 12:00")) == 3600, "Londres: en verano esta a UTC+1");
+   Assert(LondonGmtOffset(StringToTime("2026.01.15 12:00")) == 0,    "Londres: en invierno esta a UTC+0");
+
+   CSessionFilter lon3;                   // Londres, servidor UTC+3 (EET verano)
+   lon3.Init(SESION_LONDRES, 8, 17, 2, 1, 400, 20, 600, 3);
+   CSessionFilter lon2;                   // Londres, servidor UTC+2 (EET invierno)
+   lon2.Init(SESION_LONDRES, 8, 17, 2, 1, 400, 20, 600, 2);
+
+   Assert(lon3.ToSessionTime(StringToTime("2026.07.15 10:00")) == StringToTime("2026.07.15 08:00"),
+          "Londres: servidor UTC+3 10:00 en julio = 08:00 de Londres");
+   Assert(lon2.ToSessionTime(StringToTime("2026.01.15 10:00")) == StringToTime("2026.01.15 08:00"),
+          "Londres: servidor UTC+2 10:00 en enero = la MISMA apertura de Londres");
+   Assert(lon3.ToSessionTime(StringToTime("2026.07.15 19:00")) == StringToTime("2026.07.15 17:00"),
+          "Londres: servidor UTC+3 19:00 en julio = 17:00 de Londres (cierre)");
+   Assert(lon3.EntryAllowedAt(lon3.ToSessionTime(StringToTime("2026.07.15 10:00"))) == true,
+          "sesion Londres: miercoles en la apertura permite entrar");
+   Assert(lon3.EntryAllowedAt(lon3.ToSessionTime(StringToTime("2026.07.15 19:00"))) == false,
+          "sesion Londres: 17:00 ya es el cierre, no permite");
+
+   //--- Lo importante: EE.UU. y Europa NO cambian la hora el mismo dia.
+   //--- Del 8 al 28 de marzo de 2026 Londres y Nueva York estan a 4 horas
+   //--- y no a 5. Una ventana fija en hora del servidor se corre esos dias;
+   //--- esta no, porque cada plaza lleva su propio horario de verano.
+   datetime marzo = StringToTime("2026.03.20 12:00");   // UTC, dentro del desfase
+   datetime julio = StringToTime("2026.07.15 12:00");   // UTC, ambas en verano
+   Assert(LondonGmtOffset(marzo) - NewYorkGmtOffset(marzo) == 4 * 3600,
+          "desfase: en marzo Londres y Nueva York estan a 4 horas");
+   Assert(LondonGmtOffset(julio) - NewYorkGmtOffset(julio) == 5 * 3600,
+          "desfase: en julio vuelven a estar a 5 horas");
+
+   //--- Y en ese hueco cada sesion sigue abriendo a SU hora 08:00
+   CSessionFilter lonMar, nyMar;
+   lonMar.Init(SESION_LONDRES,     8, 17, 2, 1, 400, 20, 600, 2);
+   nyMar.Init(SESION_NUEVA_YORK,   8, 17, 2, 1, 400, 20, 600, 2);
+   Assert(lonMar.ToSessionTime(StringToTime("2026.03.20 10:00")) == StringToTime("2026.03.20 08:00"),
+          "desfase: 20-mar servidor 10:00 = apertura de Londres");
+   Assert(nyMar.ToSessionTime(StringToTime("2026.03.20 14:00")) == StringToTime("2026.03.20 08:00"),
+          "desfase: 20-mar servidor 14:00 = apertura de Nueva York (4h despues, no 5)");
   }
 
 //+------------------------------------------------------------------+
@@ -449,6 +516,7 @@ void OnStart()
    TestSmcStructure();
    TestCrtHelpers();
    TestTimezone();
+   TestLondres();
 
    CNotifier notifier;
    notifier.Init(false);
