@@ -56,7 +56,8 @@ public:
                const double openRiskPct, const string nextNews,
                const string &symbols[], const string &regimes[],
                const string &ratings[], const string &smc[],
-               const string &positions[], const int &tradesToday[])
+               const string &crt[], const string &positions[],
+               const int &tradesToday[])
      {
       color cWhite = clrSilver;
       color cVal   = clrWhite;
@@ -79,6 +80,7 @@ public:
          SetLine(i++, "  Regimen: " + regimes[s], cWhite);
          SetLine(i++, "  Rating : " + ratings[s], cWhite);
          SetLine(i++, "  SmartM.: " + smc[s], cWhite);
+         SetLine(i++, "  CRT    : " + crt[s], cWhite);
          SetLine(i++, "  Posic. : " + (positions[s] == "" ? "---" : positions[s]),
                  (positions[s] == "" ? cWhite : cGood));
         }

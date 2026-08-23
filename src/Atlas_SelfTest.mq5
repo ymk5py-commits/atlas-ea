@@ -15,6 +15,7 @@
 #include "include/TVRating.mqh"
 #include "include/RegimeDetector.mqh"
 #include "include/SmcStrategy.mqh"
+#include "include/CrtStrategy.mqh"
 
 input string InpTestSymbolGold = "XAUUSD";  // Simbolo oro del broker
 input string InpTestSymbolEur  = "EURUSD";  // Simbolo EURUSD del broker
@@ -100,12 +101,12 @@ void TestSmcHelpers()
    Assert(SmcIsSwingLow(lo, 5, 2, 10) == true,  "SMC: fractal marca el minimo en 5");
    Assert(SmcIsSwingLow(lo, 4, 2, 10) == false, "SMC: 4 no es minimo");
 
-   Assert(SmcInDiscount(140.0, 100.0, 200.0) == true,  "SMC: 140 en descuento (rango 100-200)");
-   Assert(SmcInDiscount(160.0, 100.0, 200.0) == false, "SMC: 160 NO esta en descuento");
-   Assert(SmcInDiscount(150.0, 100.0, 200.0) == true,  "SMC: equilibrio cuenta como descuento");
-   Assert(SmcInPremium(160.0, 100.0, 200.0)  == true,  "SMC: 160 en premium");
-   Assert(SmcInPremium(140.0, 100.0, 200.0)  == false, "SMC: 140 NO esta en premium");
-   Assert(SmcInDiscount(150.0, 200.0, 100.0) == false, "SMC: rango invertido -> falso");
+   Assert(PriceInDiscount(140.0, 100.0, 200.0) == true,  "Rango: 140 en descuento (100-200)");
+   Assert(PriceInDiscount(160.0, 100.0, 200.0) == false, "Rango: 160 NO esta en descuento");
+   Assert(PriceInDiscount(150.0, 100.0, 200.0) == true,  "Rango: equilibrio cuenta como descuento");
+   Assert(PriceInPremium(160.0, 100.0, 200.0)  == true,  "Rango: 160 en premium");
+   Assert(PriceInPremium(140.0, 100.0, 200.0)  == false, "Rango: 140 NO esta en premium");
+   Assert(PriceInDiscount(150.0, 200.0, 100.0) == false, "Rango: invertido -> falso");
 
    double oT = 0.0, oB = 0.0;
    Assert(SmcOverlap(110.0, 100.0, 105.0, 95.0, oT, oB) == true,
@@ -152,6 +153,38 @@ void TestSmcStructure()
    Assert(bbar == 1,     "SMC estructura: la vela del quiebre bajista es la 1");
    Assert(origin == 2,   "SMC estructura: la pierna bajista nace en el maximo de la vela 2");
    Assert(prevDir == 1,  "SMC estructura: venia de un quiebre alcista -> CHoCH");
+  }
+
+//+------------------------------------------------------------------+
+//| Helpers puros de Candle Range Theory                              |
+//+------------------------------------------------------------------+
+void TestCrtHelpers()
+  {
+   //--- Validez del rango de la vela mayor (ATR del TF = 10)
+   Assert(CrtRangeValid(10.0, 10.0, 0.8, 2.5) == true,  "CRT: rango normal es valido");
+   Assert(CrtRangeValid(5.0,  10.0, 0.8, 2.5) == false, "CRT: doji sin recorrido -> invalido");
+   Assert(CrtRangeValid(30.0, 10.0, 0.8, 2.5) == false, "CRT: vela gigante ya extendida -> invalido");
+   Assert(CrtRangeValid(8.0,  10.0, 0.8, 2.5) == true,  "CRT: borde inferior del rango es valido");
+   Assert(CrtRangeValid(25.0, 10.0, 0.8, 2.5) == true,  "CRT: borde superior del rango es valido");
+   Assert(CrtRangeValid(10.0,  0.0, 0.8, 2.5) == false, "CRT: sin ATR no se valida el rango");
+   Assert(CrtRangeValid(0.0,  10.0, 0.8, 2.5) == false, "CRT: rango nulo -> invalido");
+
+   //--- Profundidad de la purga (rango = 10, tope 40%)
+   Assert(CrtPurgeIsSweep(2.0, 10.0, 40.0) == true,  "CRT: purga somera es barrido");
+   Assert(CrtPurgeIsSweep(4.0, 10.0, 40.0) == true,  "CRT: purga en el limite sigue siendo barrido");
+   Assert(CrtPurgeIsSweep(5.0, 10.0, 40.0) == false, "CRT: purga profunda es ruptura, no barrido");
+   Assert(CrtPurgeIsSweep(0.0, 10.0, 40.0) == false, "CRT: sin purga no hay barrido");
+   Assert(CrtPurgeIsSweep(2.0,  0.0, 40.0) == false, "CRT: sin rango no hay barrido");
+
+   //--- Beneficio / riesgo hasta el extremo opuesto
+   Assert(MathAbs(CrtRewardRisk(100.0, 104.0, 92.0) - 2.0) < 1e-9,
+          "CRT: venta con riesgo 4 y recorrido 8 = 2R");
+   Assert(MathAbs(CrtRewardRisk(100.0, 96.0, 110.0) - 2.5) < 1e-9,
+          "CRT: compra con riesgo 4 y recorrido 10 = 2.5R");
+   Assert(CrtRewardRisk(100.0, 104.0, 108.0) == 0.0,
+          "CRT: objetivo del lado equivocado -> 0R (se descarta)");
+   Assert(CrtRewardRisk(100.0, 100.0, 90.0) == 0.0,
+          "CRT: SL pegado al precio -> 0R (se descarta)");
   }
 
 //+------------------------------------------------------------------+
@@ -305,6 +338,40 @@ void TestIndicatorWiring(const string symbol)
    else
       Print("SKIP  SmcStrategy ", symbol, ": historia M15/H1 insuficiente aun");
    smc.Release();
+
+   CCrtStrategy crt;
+   if(!crt.Init(symbol, PERIOD_H4, 0, 0.8, 2.5, 40.0, 1.5, 0.25, true, true, true))
+     {
+      Assert(false, "CrtStrategy: creacion de handles en " + symbol);
+      return;
+     }
+   waited = 0;
+   while(!crt.Ready() && waited < 20)
+     {
+      Sleep(1000);
+      waited++;
+     }
+   if(crt.Ready())
+     {
+      SSignal cs = crt.Check(REGIME_CHOPPY);
+      Assert(cs.dir == SIGNAL_NONE || cs.dir == SIGNAL_BUY || cs.dir == SIGNAL_SELL,
+             "CRT " + symbol + ": devuelve una senal valida");
+      if(cs.dir != SIGNAL_NONE)
+        {
+         Assert(cs.sl_price > 0.0 && cs.tp_price > 0.0,
+                "CRT " + symbol + ": toda senal trae SL y objetivo");
+         //--- El SL y el objetivo tienen que quedar en lados OPUESTOS del precio
+         double px = (cs.dir == SIGNAL_BUY ? SymbolInfoDouble(symbol, SYMBOL_ASK)
+                                           : SymbolInfoDouble(symbol, SYMBOL_BID));
+         bool ok = (cs.dir == SIGNAL_BUY ? (cs.sl_price < px && cs.tp_price > px)
+                                         : (cs.sl_price > px && cs.tp_price < px));
+         Assert(ok, "CRT " + symbol + ": SL y objetivo en lados opuestos del precio");
+        }
+      Print("INFO  ", symbol, " CRT = ", crt.Note());
+     }
+   else
+      Print("SKIP  CrtStrategy ", symbol, ": historia H4/M15 insuficiente aun");
+   crt.Release();
   }
 
 //+------------------------------------------------------------------+
@@ -316,6 +383,7 @@ void OnStart()
    TestDateHelpers();
    TestSmcHelpers();
    TestSmcStructure();
+   TestCrtHelpers();
 
    CNotifier notifier;
    notifier.Init(false);

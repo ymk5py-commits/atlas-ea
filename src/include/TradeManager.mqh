@@ -129,10 +129,22 @@ public:
          return false;
         }
 
-      //--- TP: con lote partible se gestiona por parcial+trailing (sin TP fijo)
+      //--- TP: prioridad al objetivo que fije la estrategia (CRT apunta al
+      //--- extremo opuesto del rango). Manage() conserva el TP en cada
+      //--- PositionModify, así que break-even, parcial y trailing lo respetan.
       double minPartial = 2.0 * SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
       double tp = 0.0;
-      if(lots < minPartial)
+      if(sig.tp_price > 0.0)
+        {
+         double cand = NormPrice(symbol, sig.tp_price);
+         bool   okSide = (sig.dir == SIGNAL_BUY ? cand > entry : cand < entry);
+         if(okSide && MathAbs(cand - entry) >= stopsLevel * point + point)
+            tp = cand;
+         else
+            m_notifier.Log(symbol + ": TP propuesto invalido o muy cerca, se gestiona con parcial+trailing.");
+        }
+      //--- Sin objetivo propio y sin lote partible: TP en R (comportamiento previo)
+      if(tp <= 0.0 && lots < minPartial)
          tp = NormPrice(symbol, sig.dir == SIGNAL_BUY ? entry + m_rr * slDist
                                                       : entry - m_rr * slDist);
 

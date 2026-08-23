@@ -9,13 +9,20 @@ drawdown, filtro de noticias y cierre pre-fin de semana.
 | Estrategia | Cuándo entra | Módulo |
 |---|---|---|
 | **Smart Money (SMC)** | Quiebre de estructura (BOS/CHoCH) con desplazamiento, y retroceso a un Order Block / FVG sin mitigar, en descuento (compras) o premium (ventas) | `SmcStrategy.mqh` |
+| **Candle Range Theory (CRT)** | Una vela de H4 define el rango; la siguiente purga un extremo cazando stops y vuelve adentro; se opera hacia el extremo opuesto, que es el objetivo | `CrtStrategy.mqh` |
 | **Tendencia** | Pullback a la EMA20 de M15 a favor de H1/H4, con RSI(9) recuperando 50 | `TrendStrategy.mqh` |
 | **Ruptura asiática** | Cierre M15 fuera del rango 1–8h en la ventana de Londres/NY | `BreakoutStrategy.mqh` |
 | **Scalping M1** | Momentum EMA9/EMA21 + RSI(7) en oro, salida en minutos | `ScalpStrategy.mqh` |
 
 Un detector de régimen (ADX H1 / compresión de Bollinger M15) decide cuál aplica.
-Smart Money tiene prioridad: si encuentra setup, se opera ese; si no, entra la
-estrategia del régimen. El scalping corre aparte, en su propia ventana horaria.
+El orden de prioridad es **SMC → CRT → estrategia del régimen**: los dos modelos
+estructurales van primero porque traen su propio contexto multi-temporal y son los más
+selectivos; si ninguno encuentra setup, entra la estrategia que corresponda al régimen.
+El scalping corre aparte, en su propia ventana horaria.
+
+CRT es la única que fija su propio objetivo (el extremo opuesto del rango) en vez de
+dejar la salida al parcial + trailing; el break-even, el cierre parcial y el trailing
+siguen funcionando igual sobre esa posición.
 
 > ⚠️ **Advertencia:** el trading apalancado puede generar pérdidas. Ningún sistema
 > garantiza rentabilidad. Este bot se valida en **backtest** y **cuenta demo** antes de
@@ -52,6 +59,7 @@ MQL5/Experts/Atlas/
 └── include/
     ├── AtlasTypes.mqh
     ├── BreakoutStrategy.mqh
+    ├── CrtStrategy.mqh
     ├── Dashboard.mqh
     ├── NewsFilter.mqh
     ├── Notifier.mqh
@@ -127,9 +135,11 @@ tiene 0 a 4 operaciones por símbolo. Todo queda registrado en la pestaña Exper
    - **≥ 100 operaciones** en el período
    - Ningún mes con pérdida > 15%
 5. Corridas A/B: repetí el backtest desactivando una estrategia por vez
-   (`InpEnableSmc`, `InpEnableTrend`, `InpEnableBreakout`, `InpEnableScalp`) para ver
-   qué aporta cada una. Empezá por medir Smart Money sola contra la combinación
-   completa: como tiene prioridad, es la que más cambia el resultado.
+   (`InpEnableSmc`, `InpEnableCrt`, `InpEnableTrend`, `InpEnableBreakout`,
+   `InpEnableScalp`) para ver qué aporta cada una. Empezá por los dos modelos
+   estructurales: como tienen prioridad, son los que más cambian el resultado.
+   En CRT probá además `InpCrtMode` en 0 (en vivo) y 1 (confirmado): el segundo entra
+   más tarde pero solo después de que la vela de purga cerró dentro del rango.
 
 > **Nota:** el filtro de noticias no funciona en el backtest (limitación de MT5 — el
 > calendario económico no está disponible en el probador). En demo/real sí funciona.
@@ -157,6 +167,12 @@ tiene 0 a 4 operaciones por símbolo. Todo queda registrado en la pestaña Exper
 | `InpSmcRequireSweep` | false | Exigir barrido de liquidez previo — mucho más selectivo |
 | `InpSmcRequireDisc` | true | Comprar solo en descuento, vender solo en premium |
 | `InpSmcTvFilter` | 0 | Confluencia del rating TV para SMC: 0 ninguna · 1 solo H1 · 2 M15+H1 |
+| `InpEnableCrt` | true | Activar Candle Range Theory |
+| `InpCrtTimeframe` | H4 | Vela que define el rango (H1, H4, D1…) |
+| `InpCrtMode` | 0 | 0 = en vivo (purga en la vela en curso) · 1 = confirmado (la purga ya cerró) |
+| `InpCrtMaxPurgePct` | 40.0 | Purga máxima en % del rango; más profundo se considera ruptura real |
+| `InpCrtMinRR` | 1.5 | Recorrido mínimo al extremo opuesto para que el setup valga |
+| `InpCrtFollowRegime` | true | No operar la purga a contramano de la tendencia de H1 |
 | `InpSessionStart/End` | 8 / 20 | Ventana de entradas (hora del SERVIDOR del broker) |
 | `InpMaxSpreadGold/Eur` | 400 / 20 | Spread máximo tolerado (points) |
 
@@ -172,6 +188,11 @@ tiene 0 a 4 operaciones por símbolo. Todo queda registrado en la pestaña Exper
   "zona fuera de descuento"). Es un modelo selectivo: pasar semanas sin setup en un
   símbolo es normal. Para aflojarlo, empezá por `InpSmcRequireDisc = false`; para
   apretarlo, `InpSmcRequireSweep = true`.
+- **CRT no dispara nunca** → misma idea con la línea `CRT` del panel ("esperando la purga
+  de un extremo", "purga demasiado profunda", "rango sin recorrido", "recorrido
+  insuficiente"). Con vela de H4 hay como mucho un setup cada 4 horas y la mayoría se
+  descarta. Para aflojarlo: `InpCrtMinRR = 1.0` o `InpCrtFollowRegime = false`; para
+  apretarlo, `InpCrtMode = 1`.
 - **La carita del gráfico está gris/tachada** → falta tildar "Permitir Algo Trading" en
   las propiedades del EA (F7 sobre el gráfico).
 - **El backtest no descarga ticks** → probar primero con modelado "1 minuto OHLC" para

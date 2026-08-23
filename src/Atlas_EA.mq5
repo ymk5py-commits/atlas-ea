@@ -20,6 +20,7 @@
 #include "include/BreakoutStrategy.mqh"
 #include "include/ScalpStrategy.mqh"
 #include "include/SmcStrategy.mqh"
+#include "include/CrtStrategy.mqh"
 #include "include/NewsFilter.mqh"
 #include "include/Dashboard.mqh"
 
@@ -68,6 +69,20 @@ input double InpSmcSlBufferAtr   = 0.25;   // Colchon del SL bajo/sobre la zona 
 input double InpSmcMaxSlAtr      = 3.0;    // Descartar el setup si el SL supera (x ATR M15)
 input int    InpSmcTvFilter      = 0;      // Confluencia rating TV: 0=ninguna, 1=solo H1, 2=M15+H1
 
+input group "Candle Range Theory (rango de vela mayor + purga)"
+input bool            InpEnableCrt      = true;       // Activar CRT
+input ENUM_TIMEFRAMES InpCrtTimeframe   = PERIOD_H4;  // Vela que define el rango
+input int    InpCrtMode          = 0;      // 0 = en vivo (purga en la vela en curso) · 1 = confirmado (la purga ya cerro)
+input double InpCrtMinRangeAtr   = 0.8;    // Rango minimo de la vela (x ATR del TF) — evita dojis
+input double InpCrtMaxRangeAtr   = 2.5;    // Rango maximo (x ATR del TF) — evita velas ya extendidas
+input double InpCrtMaxPurgePct   = 40.0;   // Purga max en % del rango; mas profundo = ruptura, no barrido
+input double InpCrtMinRR         = 1.5;    // Recorrido minimo al extremo opuesto (en R)
+input double InpCrtSlBufferAtr   = 0.25;   // Colchon del SL sobre la purga (x ATR M15)
+input bool   InpCrtRequireEq     = true;   // Vender solo desde premium / comprar solo desde descuento
+input bool   InpCrtNeedRejection = true;   // Exigir vela de rechazo en M15
+input bool   InpCrtFollowRegime  = true;   // No operar la purga a contramano de la tendencia H1
+input int    InpCrtTvFilter      = 0;      // Confluencia rating TV: 0=ninguna, 1=solo H1, 2=M15+H1
+
 input group "Sesion y noticias (hora del SERVIDOR)"
 input int    InpSessionStart     = 8;               // Inicio ventana de entradas (Londres+NY, validado por backtest)
 input int    InpSessionEnd       = 20;              // Fin ventana de entradas (Londres+NY, validado por backtest)
@@ -114,6 +129,7 @@ CTrendStrategy    *g_trend[];
 CBreakoutStrategy *g_breakout[];
 CScalpStrategy    *g_scalp[];       // NULL si el símbolo no scalpea
 CSmcStrategy      *g_smc[];
+CCrtStrategy      *g_crt[];
 int                g_hAtrM15[];
 
 datetime           g_lastM15[];
@@ -124,6 +140,7 @@ datetime           g_lastScalpBlockLog[];
 string             g_cacheRegime[];
 string             g_cacheRating[];
 string             g_cacheSmc[];
+string             g_cacheCrt[];
 datetime           g_lastDashUpdate = 0;
 
 //--- Inicialización diferida por símbolo: al arrancar en un servidor, el
@@ -197,6 +214,13 @@ bool TryInitSymbol(const int i)
                      InpSmcNeedRejection, InpSmcUseFvg, InpSmcAllowChoppy))
       return false;
 
+   if(InpEnableCrt &&
+      !g_crt[i].Init(s, InpCrtTimeframe, InpCrtMode, InpCrtMinRangeAtr,
+                     InpCrtMaxRangeAtr, InpCrtMaxPurgePct, InpCrtMinRR,
+                     InpCrtSlBufferAtr, InpCrtRequireEq, InpCrtNeedRejection,
+                     InpCrtFollowRegime))
+      return false;
+
    //--- Estrategia de scalping (solo símbolos habilitados)
    if(IsScalpSymbol(s) && CheckPointer(g_scalp[i]) != POINTER_DYNAMIC)
      {
@@ -213,6 +237,7 @@ bool TryInitSymbol(const int i)
    g_cacheRegime[i] = "cargando historia...";
    g_cacheRating[i] = "cargando historia...";
    g_cacheSmc[i]    = (InpEnableSmc ? "cargando historia..." : "desactivado");
+   g_cacheCrt[i]    = (InpEnableCrt ? "cargando historia..." : "desactivado");
    g_notifier.Log(s + ": indicadores listos, operativo.");
    return true;
   }
@@ -257,6 +282,7 @@ int OnInit()
    ArrayResize(g_breakout, n);
    ArrayResize(g_scalp, n);
    ArrayResize(g_smc, n);
+   ArrayResize(g_crt, n);
    ArrayResize(g_hAtrM15, n);
    ArrayResize(g_lastM15, n);
    ArrayResize(g_lastM1, n);
@@ -266,6 +292,7 @@ int OnInit()
    ArrayResize(g_cacheRegime, n);
    ArrayResize(g_cacheRating, n);
    ArrayResize(g_cacheSmc, n);
+   ArrayResize(g_cacheCrt, n);
    ArrayResize(g_symReady, n);
 
    for(int i = 0; i < n; i++)
@@ -277,6 +304,7 @@ int OnInit()
       g_breakout[i] = new CBreakoutStrategy();
       g_scalp[i]    = NULL;
       g_smc[i]      = new CSmcStrategy();
+      g_crt[i]      = new CCrtStrategy();
       g_hAtrM15[i]  = INVALID_HANDLE;
       g_lastM15[i]  = 0;
       g_lastM1[i]   = 0;
@@ -287,6 +315,7 @@ int OnInit()
       g_cacheRegime[i] = "esperando conexion...";
       g_cacheRating[i] = "esperando conexion...";
       g_cacheSmc[i]    = (InpEnableSmc ? "esperando conexion..." : "desactivado");
+      g_cacheCrt[i]    = (InpEnableCrt ? "esperando conexion..." : "desactivado");
       TryInitSymbol(i);          // si el terminal aún no conectó, se reintenta
      }
 
@@ -303,6 +332,12 @@ int OnInit()
          InpSmcFractal, (InpSmcRequireHtf ? "si" : "no"), (InpSmcRequireSweep ? "si" : "no"),
          (InpSmcRequireDisc ? "si" : "no"), (InpSmcAllowChoppy ? "si" : "no"),
          (InpSmcTvFilter == 0 ? "ninguna" : (InpSmcTvFilter == 1 ? "solo H1" : "M15+H1"))));
+   if(InpEnableCrt)
+      g_notifier.Log(StringFormat(
+         "CRT ACTIVO | vela-rango %s | modo %s | purga max %.0f%% del rango | recorrido min %.1fR | premium/descuento: %s | sigue al regimen: %s",
+         EnumToString(InpCrtTimeframe), (InpCrtMode == 1 ? "confirmado" : "en vivo"),
+         InpCrtMaxPurgePct, InpCrtMinRR, (InpCrtRequireEq ? "si" : "no"),
+         (InpCrtFollowRegime ? "si" : "no")));
    if(InpEnableScalp)
       g_notifier.Log(StringFormat(
          "Scalping ACTIVO en %s | Riesgo %.1f%%/scalp | RR %.1f | BE %.1fR | max %d/dia | hold %d min | sesion %02d-%02dh server",
@@ -328,6 +363,7 @@ void OnDeinit(const int reason)
       if(CheckPointer(g_breakout[i]) == POINTER_DYNAMIC) { g_breakout[i].Release(); delete g_breakout[i]; }
       if(CheckPointer(g_scalp[i])    == POINTER_DYNAMIC) { g_scalp[i].Release();    delete g_scalp[i]; }
       if(CheckPointer(g_smc[i])      == POINTER_DYNAMIC) { g_smc[i].Release();      delete g_smc[i]; }
+      if(CheckPointer(g_crt[i])      == POINTER_DYNAMIC) { g_crt[i].Release();      delete g_crt[i]; }
       if(g_hAtrM15[i] != INVALID_HANDLE)
          IndicatorRelease(g_hAtrM15[i]);
      }
@@ -476,7 +512,8 @@ bool EvaluateSymbol(const int idx)
    //--- Datos listos?
    if(!g_tvM15[idx].Ready() || !g_tvH1[idx].Ready() ||
       !g_regime[idx].Ready() || !g_trend[idx].Ready() || !g_breakout[idx].Ready() ||
-      (InpEnableSmc && !g_smc[idx].Ready()))
+      (InpEnableSmc && !g_smc[idx].Ready()) ||
+      (InpEnableCrt && !g_crt[idx].Ready()))
      {
       LogTransient(idx, symbol + ": historia/indicadores aun cargando, reintento en esta vela.");
       return false;
@@ -521,19 +558,32 @@ bool EvaluateSymbol(const int idx)
       return true;
      }
 
-   //--- Señal. Smart Money tiene prioridad: es el modelo más selectivo
-   //--- (estructura + zona sin mitigar) y ya trae su propio filtro H1.
-   //--- Si no hay setup SMC, se recurre a la estrategia del régimen.
+   //--- Orden de prioridad: primero los dos modelos estructurales
+   //--- (los más selectivos, con su propio contexto multi-temporal) y
+   //--- recién después la estrategia que corresponda al régimen.
+   //--- Los estados se refrescan siempre, dispare o no, para el panel.
    SSignal sig;
    sig.dir = SIGNAL_NONE;
    bool fromBreakout = false;
    bool fromSmc      = false;
+   bool fromCrt      = false;
 
    if(InpEnableSmc)
      {
       sig = g_smc[idx].Check(regime);
       g_cacheSmc[idx] = g_smc[idx].Note();
       fromSmc = (sig.dir != SIGNAL_NONE);
+     }
+
+   if(InpEnableCrt)
+     {
+      SSignal crtSig = g_crt[idx].Check(regime);
+      g_cacheCrt[idx] = g_crt[idx].Note();
+      if(sig.dir == SIGNAL_NONE && crtSig.dir != SIGNAL_NONE)
+        {
+         sig     = crtSig;
+         fromCrt = true;
+        }
      }
 
    if(sig.dir == SIGNAL_NONE)
@@ -551,10 +601,15 @@ bool EvaluateSymbol(const int idx)
       return true;
 
    //--- Confluencia con el rating TradingView.
-   //--- SMC usa su propia escala (InpSmcTvFilter): un CHoCH es por definición
-   //--- una reversión temprana y los indicadores del rating van con retraso,
-   //--- así que exigirles confirmación anularía casi todos esos setups.
-   int tvLevel = (fromSmc ? InpSmcTvFilter : 2);
+   //--- SMC y CRT usan su propia escala (InpSmcTvFilter / InpCrtTvFilter):
+   //--- un CHoCH y una purga de liquidez son reversiones tempranas, y los
+   //--- indicadores del rating van con retraso, así que exigirles
+   //--- confirmación anularía casi todos esos setups.
+   int tvLevel = 2;
+   if(fromSmc)
+      tvLevel = InpSmcTvFilter;
+   else if(fromCrt)
+      tvLevel = InpCrtTvFilter;
    if(!TvConfirms(sig.dir, rM15, rH1, tvLevel))
      {
       g_notifier.Log(symbol + ": senal " + (sig.dir == SIGNAL_BUY ? "COMPRA" : "VENTA") +
@@ -577,6 +632,8 @@ bool EvaluateSymbol(const int idx)
          g_breakout[idx].MarkTraded();
       if(fromSmc)
          g_smc[idx].MarkTraded();          // la zona queda consumida
+      if(fromCrt)
+         g_crt[idx].MarkTraded();          // el rango queda consumido
      }
    return true;
   }
@@ -643,11 +700,12 @@ void UpdateDashboard()
       return;                          // en VPS no hay pantalla que dibujar
 
    int n = ArraySize(g_symbols);
-   string regimes[], ratings[], smc[], positions[];
+   string regimes[], ratings[], smc[], crt[], positions[];
    int trades[];
    ArrayResize(regimes, n);
    ArrayResize(ratings, n);
    ArrayResize(smc, n);
+   ArrayResize(crt, n);
    ArrayResize(positions, n);
    ArrayResize(trades, n);
    for(int i = 0; i < n; i++)
@@ -655,6 +713,7 @@ void UpdateDashboard()
       regimes[i]   = g_cacheRegime[i];
       ratings[i]   = g_cacheRating[i];
       smc[i]       = g_cacheSmc[i];
+      crt[i]       = g_cacheCrt[i];
       positions[i] = g_trade.PositionInfo(g_symbols[i]);
       trades[i]    = g_risk.TradesToday(g_symbols[i]);
      }
@@ -681,5 +740,5 @@ void UpdateDashboard()
    g_dash.Update(state, stateColor,
                  AccountInfoDouble(ACCOUNT_EQUITY), g_risk.DayPnLPct(),
                  g_risk.DrawdownFromPeakPct(), g_risk.OpenRiskPct(),
-                 newsLine, g_symbols, regimes, ratings, smc, positions, trades);
+                 newsLine, g_symbols, regimes, ratings, smc, crt, positions, trades);
   }

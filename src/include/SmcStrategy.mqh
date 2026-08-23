@@ -62,22 +62,6 @@ bool SmcIsSwingLow(const double &lo[], const int i, const int k, const int total
    return true;
   }
 
-//--- Mitad inferior del rango (descuento): donde se compra
-bool SmcInDiscount(const double price, const double legLow, const double legHigh)
-  {
-   if(legHigh <= legLow)
-      return false;
-   return (price <= legLow + 0.5 * (legHigh - legLow));
-  }
-
-//--- Mitad superior del rango (premium): donde se vende
-bool SmcInPremium(const double price, const double legLow, const double legHigh)
-  {
-   if(legHigh <= legLow)
-      return false;
-   return (price >= legLow + 0.5 * (legHigh - legLow));
-  }
-
 //--- Intersección de dos zonas. False si no se solapan.
 bool SmcOverlap(const double aTop, const double aBottom,
                 const double bTop, const double bBottom,
@@ -305,6 +289,7 @@ public:
       SSignal sig;
       sig.dir         = SIGNAL_NONE;
       sig.sl_price    = 0.0;
+      sig.tp_price    = 0.0;           // objetivo por gestion (parcial + trailing)
       sig.reason      = "";
       m_pendingOrigin = 0;
 
@@ -442,8 +427,8 @@ public:
       if(m_requireDiscount)
         {
          //--- Se evalúa el borde MÁS CARO de la zona: el peor precio de entrada
-         bool okZone = (dir == 1 ? SmcInDiscount(zTop, legLow, legHigh)
-                                 : SmcInPremium(zBot, legLow, legHigh));
+         bool okZone = (dir == 1 ? PriceInDiscount(zTop, legLow, legHigh)
+                                 : PriceInPremium(zBot, legLow, legHigh));
          if(!okZone)
            {
             m_lastNote += (dir == 1 ? " (zona fuera de descuento)" : " (zona fuera de premium)");

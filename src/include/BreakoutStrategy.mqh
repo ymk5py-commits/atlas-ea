@@ -95,6 +95,7 @@ public:
       SSignal sig;
       sig.dir      = SIGNAL_NONE;
       sig.sl_price = 0.0;
+      sig.tp_price = 0.0;
       sig.reason   = "";
 
       if(regime != REGIME_SQUEEZE)
