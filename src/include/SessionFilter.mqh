@@ -95,6 +95,39 @@ int LondonGmtOffset(const datetime utc)
    return (IsEuDst(utc) ? 3600 : 0);
   }
 
+//--- ¿El símbolo es oro? (XAUUSD, GOLD, XAUUSD.a...)
+bool SymbolIsGold(const string symbol)
+  {
+   string u = symbol;
+   StringToUpper(u);
+   return (StringFind(u, "XAU") >= 0 || StringFind(u, "GOLD") >= 0);
+  }
+
+//--- ¿El símbolo es un índice US? Nombres típicos entre brokers:
+//--- US30/US100/US500, USTEC/USTECH, NAS100/NDX, SPX500, DJ30, WS30.
+bool SymbolIsIndex(const string symbol)
+  {
+   if(SymbolIsGold(symbol))
+      return false;
+   string u = symbol;
+   StringToUpper(u);
+   return (StringFind(u, "US30") >= 0 || StringFind(u, "US100") >= 0 ||
+           StringFind(u, "US500") >= 0 || StringFind(u, "USTEC") >= 0 ||
+           StringFind(u, "NAS") >= 0 || StringFind(u, "NDX") >= 0 ||
+           StringFind(u, "SPX") >= 0 || StringFind(u, "DJ") >= 0 ||
+           StringFind(u, "WS30") >= 0);
+  }
+
+//--- Pasa un limite de spread expresado en PRECIO a los "points" de un
+//--- broker con ese tamano de point. Devuelve 0 si el point no se conoce
+//--- todavia, y con 0 el gate de spread no deja operar.
+long SpreadLimitPoints(const double maxSpreadPrice, const double point)
+  {
+   if(point <= 0.0 || maxSpreadPrice <= 0.0)
+      return 0;
+   return (long)MathRound(maxSpreadPrice / point);
+  }
+
 //--- Nombre legible de la plaza
 string SesionToString(const ESesion zone)
   {
@@ -114,26 +147,26 @@ private:
    int               m_endHour;            // fin ventana, exclusivo
    int               m_friEntryCutH;       // viernes: sin entradas las ultimas N horas
    int               m_friCloseCutH;       // viernes: cerrar todo N horas antes del fin
-   long              m_maxSpreadGold;      // spread máx XAUUSD (points)
-   long              m_maxSpreadEur;       // spread máx forex (points)
-   long              m_maxSpreadIndex;     // spread máx índices US (points)
+   double            m_maxSpreadGold;      // spread máx oro, en centavos de dólar
+   double            m_maxSpreadForex;     // spread máx forex, en pips
+   double            m_maxSpreadIndex;     // spread máx índices, en puntos del índice
    int               m_manualOffsetSec;    // desfase del servidor forzado a mano
    bool              m_offsetIsManual;
 
 public:
    void Init(const ESesion zone, const int startHour, const int endHour,
              const int friEntryCutH, const int friCloseCutH,
-             const long maxSpreadGold, const long maxSpreadEur,
-             const long maxSpreadIndex, const int manualServerOffsetHours = 99)
+             const double maxSpreadGoldCents, const double maxSpreadForexPips,
+             const double maxSpreadIndexPts, const int manualServerOffsetHours = 99)
      {
       m_zone             = zone;
       m_startHour        = startHour;
       m_endHour          = endHour;
       m_friEntryCutH     = friEntryCutH;
       m_friCloseCutH     = friCloseCutH;
-      m_maxSpreadGold    = maxSpreadGold;
-      m_maxSpreadEur     = maxSpreadEur;
-      m_maxSpreadIndex   = maxSpreadIndex;
+      m_maxSpreadGold    = maxSpreadGoldCents;
+      m_maxSpreadForex   = maxSpreadForexPips;
+      m_maxSpreadIndex   = maxSpreadIndexPts;
       m_offsetIsManual   = (manualServerOffsetHours >= -12 && manualServerOffsetHours <= 14);
       m_manualOffsetSec  = (m_offsetIsManual ? manualServerOffsetHours * 3600 : 0);
      }
@@ -198,29 +231,33 @@ public:
       return (((h % 24) + 24) % 24);
      }
 
-   //--- Spread máximo configurado para un símbolo (por tipo de instrumento)
+   //--- Límite de spread en unidades de PRECIO del instrumento.
+   //--- Se configura en la unidad natural de cada uno (centavos en el oro,
+   //--- pips en forex, puntos del índice) y NO en "points" del broker: los
+   //--- points dependen de con cuantos decimales cotice cada broker, asi que
+   //--- el mismo numero puede quedar diez veces mas flojo sin avisar.
+   double MaxSpreadPriceFor(const string symbol) const
+     {
+      if(SymbolIsGold(symbol))
+         return m_maxSpreadGold * 0.01;    // centavos -> dólares
+      if(SymbolIsIndex(symbol))
+         return m_maxSpreadIndex;          // ya está en puntos del índice
+      return m_maxSpreadForex * 0.0001;    // pips -> precio
+     }
+
+   //--- El mismo límite convertido a los points de ESTE broker
    long MaxSpreadFor(const string symbol) const
      {
-      string u = symbol;
-      StringToUpper(u);
-      if(StringFind(u, "XAU") >= 0 || StringFind(u, "GOLD") >= 0)
-         return m_maxSpreadGold;
-      //--- índices US (nombres típicos entre brokers: US30/US100/US500,
-      //--- USTEC/USTECH, NAS100/NDX, SPX500, DJ30, WS30)
-      if(StringFind(u, "US30") >= 0 || StringFind(u, "US100") >= 0 ||
-         StringFind(u, "US500") >= 0 || StringFind(u, "USTEC") >= 0 ||
-         StringFind(u, "NAS") >= 0 || StringFind(u, "NDX") >= 0 ||
-         StringFind(u, "SPX") >= 0 || StringFind(u, "DJ") >= 0 ||
-         StringFind(u, "WS30") >= 0)
-         return m_maxSpreadIndex;
-      return m_maxSpreadEur;
+      return SpreadLimitPoints(MaxSpreadPriceFor(symbol),
+                               SymbolInfoDouble(symbol, SYMBOL_POINT));
      }
 
    //--- ¿El spread actual permite operar?
    bool SpreadOK(const string symbol) const
      {
       long spread = SymbolInfoInteger(symbol, SYMBOL_SPREAD);
-      return (spread > 0 && spread <= MaxSpreadFor(symbol));
+      long limite = MaxSpreadFor(symbol);
+      return (spread > 0 && limite > 0 && spread <= limite);
      }
 
    //--- Núcleo testeable: reglas de calendario sobre una hora YA CONVERTIDA

@@ -100,9 +100,13 @@ input int    InpFridayEntryCutH  = 2;               // Viernes: sin entradas las
 input int    InpFridayCloseCutH  = 1;               // Viernes: cerrar todo N horas antes del fin de sesion
 input int    InpServerGmtOffset  = 99;              // Desfase del servidor vs UTC en horas; 99 = detectar solo
 input int    InpLocalGmtOffset   = -3;              // Tu huso horario (solo para mostrar horas en el panel). Paraguay = -3
-input long   InpMaxSpreadGold    = 400;             // Spread max XAUUSD (points)
-input long   InpMaxSpreadEur     = 20;              // Spread max EURUSD (points)
-input long   InpMaxSpreadIndex   = 600;             // Spread max indices US (points)
+// El limite va en la unidad natural de cada instrumento, NO en "points":
+// los points dependen de con cuantos decimales cotice cada broker (el oro
+// con 2 o 3, los pares con 4 o 5), asi que el mismo numero puede quedar
+// diez veces mas flojo sin avisar. El bot lo convierte a points solo.
+input double InpMaxSpreadGold    = 50.0;            // Spread max en ORO (centavos de dolar; 50 = 0.50 USD)
+input double InpMaxSpreadForex   = 2.0;             // Spread max en PARES (pips)
+input double InpMaxSpreadIndex   = 5.0;             // Spread max en INDICES (puntos del indice)
 input int    InpNewsBlockMin     = 30;              // Bloqueo +/- minutos por noticia
 input string InpNewsCurrencies   = "USD,EUR,GBP";  // Monedas cuyo calendario se vigila
 // Vacio = pausar ante CUALQUIER evento de alto impacto. Es el default y el
@@ -383,7 +387,7 @@ int OnInit()
       g_session[i] = new CSessionFilter();
       g_session[i].Init(zone, SessionStartFor(zone), SessionEndFor(zone),
                         InpFridayEntryCutH, InpFridayCloseCutH,
-                        InpMaxSpreadGold, InpMaxSpreadEur, InpMaxSpreadIndex,
+                        InpMaxSpreadGold, InpMaxSpreadForex, InpMaxSpreadIndex,
                         InpServerGmtOffset);
       g_hAtrM15[i]  = INVALID_HANDLE;
       g_lastM15[i]  = 0;

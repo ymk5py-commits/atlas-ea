@@ -143,6 +143,20 @@ MQL5/Experts/Atlas/
     └── TVRating.mqh
 ```
 
+## Paso 2b — Verificación previa (opcional pero recomendado)
+
+Antes de compilar podés correr un chequeo estático de las fuentes:
+
+```
+python3 scripts/check_sources.py
+```
+
+No es un compilador: es una red de seguridad que atrapa los errores que se cuelan
+al cambiar una firma y dejar un llamador viejo, o al renombrar un input o una variable
+global y que sobreviva una referencia. Verifica balance de llaves, cantidad de
+argumentos en cada llamada a método contra la firma real de su clase, y que todo `Inp*`
+y `g_*` usado esté declarado. Si dice "Sin hallazgos", igual **falta compilar**.
+
 ## Paso 3 — Compilar
 
 1. En MT5: menú **Herramientas → Editor de lenguaje MetaQuotes** (o tecla F4).
@@ -220,6 +234,27 @@ en vez de 2.
    En CRT probá además `InpCrtMode` en 0 (en vivo) y 1 (confirmado): el segundo entra
    más tarde pero solo después de que la vela de purga cerró dentro del rango.
 
+### Límites de spread
+
+Se configuran en la **unidad natural de cada instrumento**, no en "points":
+
+| Instrumento | Input | Unidad | Default |
+|---|---|---|---|
+| Pares | `InpMaxSpreadForex` | pips | 2.0 |
+| Oro | `InpMaxSpreadGold` | centavos de dólar | 50 (= 0.50 USD) |
+| Índices | `InpMaxSpreadIndex` | puntos del índice | 5.0 |
+
+El motivo: un "point" no es una cantidad fija, depende de con cuántos decimales cotice
+cada bróker. El oro se cotiza con 2 o 3 decimales según el bróker, y los pares con 4 o
+5. Antes el límite del oro eran 400 points, que son **0.40 USD en un bróker de 3
+decimales pero 4.00 USD en uno de 2** — diez veces más flojo, sin ningún aviso, dejando
+operar con spreads pésimos. Lo mismo pasaba con los 20 points del EURUSD (2 pips contra
+20 pips). Ahora ponés la tolerancia real y el bot la convierte a los points de tu
+bróker.
+
+Al quedar operativo cada símbolo, el bot escribe en la pestaña Expertos su spread actual,
+el límite ya convertido y con cuántos decimales cotiza.
+
 ### Noticias
 
 El filtro vigila el calendario de **USD, EUR y GBP** (se agregó GBP porque el oro ahora
@@ -274,7 +309,9 @@ semana) y no depende de cómo estén escritos.
 | `InpFridayCloseCutH` | 1 | Viernes: cerrar todo N horas antes del fin de cada sesión |
 | `InpServerGmtOffset` | 99 | Huso del servidor; 99 = detectar solo. Forzalo si la detección falla |
 | `InpLocalGmtOffset` | -3 | Tu huso, solo para mostrar las horas en el panel (Paraguay = -3) |
-| `InpMaxSpreadEur` / `InpMaxSpreadGold` | 20 / 400 | Spread máximo tolerado (points) |
+| `InpMaxSpreadForex` | 2.0 | Spread máximo en pares, **en pips** |
+| `InpMaxSpreadGold` | 50.0 | Spread máximo en oro, **en centavos** (50 = 0.50 USD) |
+| `InpMaxSpreadIndex` | 5.0 | Spread máximo en índices, **en puntos del índice** |
 | `InpNewsCurrencies` | `USD,EUR,GBP` | Monedas cuyo calendario económico se vigila |
 | `InpNewsKeywords` | *(vacío)* | Vacío = pausar ante cualquier evento de alto impacto |
 

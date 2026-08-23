@@ -55,7 +55,7 @@ void TestSessionFilter()
   {
    CSessionFilter sf;
    //--- 8-20 hora del servidor; el viernes se recorta 2h para entrar y 1h para cerrar
-   sf.Init(SESION_SERVIDOR, 8, 20, 2, 1, 400, 20, 600);
+   sf.Init(SESION_SERVIDOR, 8, 20, 2, 1, 50, 2, 5);
 
    datetime monday10   = StringToTime("2026.08.03 10:00");  // lunes
    datetime monday06   = StringToTime("2026.08.03 06:00");
@@ -220,9 +220,9 @@ void TestTimezone()
    //--- Lo que importa: la MISMA hora de Nueva York sale bien con brokers
    //--- en husos distintos y en estaciones distintas.
    CSessionFilter ny3;                    // Nueva York, servidor UTC+3 (EET verano)
-   ny3.Init(SESION_NUEVA_YORK, 8, 17, 2, 1, 400, 20, 600, 3);
+   ny3.Init(SESION_NUEVA_YORK, 8, 17, 2, 1, 50, 2, 5, 3);
    CSessionFilter ny2;                    // Nueva York, servidor UTC+2 (EET invierno)
-   ny2.Init(SESION_NUEVA_YORK, 8, 17, 2, 1, 400, 20, 600, 2);
+   ny2.Init(SESION_NUEVA_YORK, 8, 17, 2, 1, 50, 2, 5, 2);
 
    Assert(ny3.ToSessionTime(StringToTime("2026.07.15 15:00")) == StringToTime("2026.07.15 08:00"),
           "zona: servidor UTC+3 15:00 en julio = 08:00 de Nueva York");
@@ -249,7 +249,7 @@ void TestTimezone()
 
    //--- En modo servidor nada se convierte (comportamiento historico)
    CSessionFilter srv;
-   srv.Init(SESION_SERVIDOR, 8, 20, 2, 1, 400, 20, 600);
+   srv.Init(SESION_SERVIDOR, 8, 20, 2, 1, 50, 2, 5);
    Assert(srv.ToSessionTime(StringToTime("2026.07.15 15:00")) == StringToTime("2026.07.15 15:00"),
           "zona: en modo servidor la hora pasa sin tocar");
    Assert(srv.ZoneName() == "SERVIDOR",   "zona: nombre de la plaza servidor");
@@ -282,9 +282,9 @@ void TestLondres()
    Assert(LondonGmtOffset(StringToTime("2026.01.15 12:00")) == 0,    "Londres: en invierno esta a UTC+0");
 
    CSessionFilter lon3;                   // Londres, servidor UTC+3 (EET verano)
-   lon3.Init(SESION_LONDRES, 8, 17, 2, 1, 400, 20, 600, 3);
+   lon3.Init(SESION_LONDRES, 8, 17, 2, 1, 50, 2, 5, 3);
    CSessionFilter lon2;                   // Londres, servidor UTC+2 (EET invierno)
-   lon2.Init(SESION_LONDRES, 8, 17, 2, 1, 400, 20, 600, 2);
+   lon2.Init(SESION_LONDRES, 8, 17, 2, 1, 50, 2, 5, 2);
 
    Assert(lon3.ToSessionTime(StringToTime("2026.07.15 10:00")) == StringToTime("2026.07.15 08:00"),
           "Londres: servidor UTC+3 10:00 en julio = 08:00 de Londres");
@@ -310,12 +310,47 @@ void TestLondres()
 
    //--- Y en ese hueco cada sesion sigue abriendo a SU hora 08:00
    CSessionFilter lonMar, nyMar;
-   lonMar.Init(SESION_LONDRES,     8, 17, 2, 1, 400, 20, 600, 2);
-   nyMar.Init(SESION_NUEVA_YORK,   8, 17, 2, 1, 400, 20, 600, 2);
+   lonMar.Init(SESION_LONDRES,     8, 17, 2, 1, 50, 2, 5, 2);
+   nyMar.Init(SESION_NUEVA_YORK,   8, 17, 2, 1, 50, 2, 5, 2);
    Assert(lonMar.ToSessionTime(StringToTime("2026.03.20 10:00")) == StringToTime("2026.03.20 08:00"),
           "desfase: 20-mar servidor 10:00 = apertura de Londres");
    Assert(nyMar.ToSessionTime(StringToTime("2026.03.20 14:00")) == StringToTime("2026.03.20 08:00"),
           "desfase: 20-mar servidor 14:00 = apertura de Nueva York (4h despues, no 5)");
+  }
+
+//+------------------------------------------------------------------+
+//| Limite de spread: la misma tolerancia real en cualquier broker    |
+//+------------------------------------------------------------------+
+void TestSpread()
+  {
+   //--- Clasificacion del instrumento
+   Assert(SymbolIsGold("XAUUSD")   == true,  "spread: XAUUSD es oro");
+   Assert(SymbolIsGold("GOLD")     == true,  "spread: GOLD es oro");
+   Assert(SymbolIsGold("XAUUSD.a") == true,  "spread: el sufijo del broker no rompe la deteccion");
+   Assert(SymbolIsGold("EURUSD")   == false, "spread: EURUSD no es oro");
+   Assert(SymbolIsIndex("US30")    == true,  "spread: US30 es indice");
+   Assert(SymbolIsIndex("NAS100")  == true,  "spread: NAS100 es indice");
+   Assert(SymbolIsIndex("EURUSD")  == false, "spread: EURUSD no es indice");
+   Assert(SymbolIsIndex("XAUUSD")  == false, "spread: el oro no cuenta como indice");
+
+   //--- Lo importante: el MISMO limite real cae en distinta cantidad de
+   //--- points segun con cuantos decimales cotice el broker.
+   Assert(SpreadLimitPoints(0.50, 0.01)     == 50,  "spread: 0.50 USD de oro = 50 points con 2 decimales");
+   Assert(SpreadLimitPoints(0.50, 0.001)    == 500, "spread: 0.50 USD de oro = 500 points con 3 decimales");
+   Assert(SpreadLimitPoints(0.0002, 0.00001) == 20, "spread: 2 pips = 20 points con 5 decimales");
+   Assert(SpreadLimitPoints(0.0002, 0.0001)  == 2,  "spread: 2 pips = 2 points con 4 decimales");
+   Assert(SpreadLimitPoints(5.0, 0.1)        == 50, "spread: 5 puntos de indice = 50 points con 1 decimal");
+   Assert(SpreadLimitPoints(5.0, 0.01)       == 500,"spread: 5 puntos de indice = 500 points con 2 decimales");
+
+   //--- Sin especificacion del simbolo el limite queda en 0, y con 0 no se opera
+   Assert(SpreadLimitPoints(0.50, 0.0) == 0, "spread: sin point conocido -> limite 0 (no operar)");
+
+   //--- El limite configurado llega a cada tipo de instrumento
+   CSessionFilter sf;
+   sf.Init(SESION_SERVIDOR, 8, 20, 2, 1, 50, 2, 5);
+   Assert(MathAbs(sf.MaxSpreadPriceFor("XAUUSD") - 0.50)   < 1e-9, "spread: 50 centavos de oro = 0.50 USD");
+   Assert(MathAbs(sf.MaxSpreadPriceFor("EURUSD") - 0.0002) < 1e-9, "spread: 2 pips = 0.0002 de precio");
+   Assert(MathAbs(sf.MaxSpreadPriceFor("US30")   - 5.0)    < 1e-9, "spread: 5 puntos de indice = 5.0");
   }
 
 //+------------------------------------------------------------------+
@@ -517,6 +552,7 @@ void OnStart()
    TestCrtHelpers();
    TestTimezone();
    TestLondres();
+   TestSpread();
 
    CNotifier notifier;
    notifier.Init(false);
