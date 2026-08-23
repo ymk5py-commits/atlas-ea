@@ -1,8 +1,21 @@
 # ATLAS EA — Bot de trading para MetaTrader 5 (oro + EURUSD)
 
 Bot híbrido adaptativo que opera **XAUUSD** y **EURUSD** en intradía (M15 con tendencia
-H1/H4), con gestión de riesgo estricta: 2% por operación, límite de pérdida diaria 5%,
-kill switch a −25% del pico, filtro de noticias y cierre pre-fin de semana.
+H1/H4), con gestión de riesgo estricta: límite de pérdida diaria, kill switch por
+drawdown, filtro de noticias y cierre pre-fin de semana.
+
+**Estrategias que corren en paralelo:**
+
+| Estrategia | Cuándo entra | Módulo |
+|---|---|---|
+| **Smart Money (SMC)** | Quiebre de estructura (BOS/CHoCH) con desplazamiento, y retroceso a un Order Block / FVG sin mitigar, en descuento (compras) o premium (ventas) | `SmcStrategy.mqh` |
+| **Tendencia** | Pullback a la EMA20 de M15 a favor de H1/H4, con RSI(9) recuperando 50 | `TrendStrategy.mqh` |
+| **Ruptura asiática** | Cierre M15 fuera del rango 1–8h en la ventana de Londres/NY | `BreakoutStrategy.mqh` |
+| **Scalping M1** | Momentum EMA9/EMA21 + RSI(7) en oro, salida en minutos | `ScalpStrategy.mqh` |
+
+Un detector de régimen (ADX H1 / compresión de Bollinger M15) decide cuál aplica.
+Smart Money tiene prioridad: si encuentra setup, se opera ese; si no, entra la
+estrategia del régimen. El scalping corre aparte, en su propia ventana horaria.
 
 > ⚠️ **Advertencia:** el trading apalancado puede generar pérdidas. Ningún sistema
 > garantiza rentabilidad. Este bot se valida en **backtest** y **cuenta demo** antes de
@@ -44,7 +57,9 @@ MQL5/Experts/Atlas/
     ├── Notifier.mqh
     ├── RegimeDetector.mqh
     ├── RiskManager.mqh
+    ├── ScalpStrategy.mqh
     ├── SessionFilter.mqh
+    ├── SmcStrategy.mqh
     ├── TradeManager.mqh
     ├── TrendStrategy.mqh
     └── TVRating.mqh
@@ -111,8 +126,10 @@ tiene 0 a 4 operaciones por símbolo. Todo queda registrado en la pestaña Exper
    - **Drawdown máximo ≤ 25%**
    - **≥ 100 operaciones** en el período
    - Ningún mes con pérdida > 15%
-5. Corridas A/B: repetí el backtest desactivando `InpEnableBreakout` (solo tendencia) y
-   luego `InpEnableTrend` (solo ruptura) para ver qué aporta cada estrategia.
+5. Corridas A/B: repetí el backtest desactivando una estrategia por vez
+   (`InpEnableSmc`, `InpEnableTrend`, `InpEnableBreakout`, `InpEnableScalp`) para ver
+   qué aporta cada una. Empezá por medir Smart Money sola contra la combinación
+   completa: como tiene prioridad, es la que más cambia el resultado.
 
 > **Nota:** el filtro de noticias no funciona en el backtest (limitación de MT5 — el
 > calendario económico no está disponible en el probador). En demo/real sí funciona.
@@ -130,11 +147,16 @@ tiene 0 a 4 operaciones por símbolo. Todo queda registrado en la pestaña Exper
 
 | Parámetro | Default | Qué hace |
 |---|---|---|
-| `InpRiskPct` | 2.0 | % del capital arriesgado por operación |
+| `InpRiskPct` | 1.5 | % del capital arriesgado por operación |
 | `InpDailyLossPct` | 5.0 | Pérdida diaria que frena al bot hasta mañana |
-| `InpMaxDrawdownPct` | 25.0 | Caída desde el pico que apaga el bot (kill switch) |
+| `InpMaxDrawdownPct` | 30.0 | Caída desde el pico que apaga el bot (kill switch) |
 | `InpResetKillSwitch` | false | Poner `true` UNA vez para reactivar tras un kill switch |
 | `InpEnableTrend` / `InpEnableBreakout` | true | Activar/desactivar cada estrategia |
+| `InpEnableSmc` | true | Activar Smart Money (tiene prioridad sobre las demás) |
+| `InpSmcRequireHtf` | true | Exigir que la estructura de H1 acompañe la de M15 |
+| `InpSmcRequireSweep` | false | Exigir barrido de liquidez previo — mucho más selectivo |
+| `InpSmcRequireDisc` | true | Comprar solo en descuento, vender solo en premium |
+| `InpSmcTvFilter` | 0 | Confluencia del rating TV para SMC: 0 ninguna · 1 solo H1 · 2 M15+H1 |
 | `InpSessionStart/End` | 8 / 20 | Ventana de entradas (hora del SERVIDOR del broker) |
 | `InpMaxSpreadGold/Eur` | 400 / 20 | Spread máximo tolerado (points) |
 
@@ -145,6 +167,11 @@ tiene 0 a 4 operaciones por símbolo. Todo queda registrado en la pestaña Exper
 - **No opera nunca** → revisar: Algo Trading activado (botón verde), hora del servidor
   dentro de la sesión (8–20), pestaña Expertos para ver los motivos ("fuera de sesion",
   "rating TV no confirma", etc. — el bot explica cada decisión).
+- **Smart Money no dispara nunca** → mirá la línea `SmartM.` del panel: dice en qué paso
+  se frena ("esperando retroceso a la zona", "zona ya mitigada", "H1 no acompana",
+  "zona fuera de descuento"). Es un modelo selectivo: pasar semanas sin setup en un
+  símbolo es normal. Para aflojarlo, empezá por `InpSmcRequireDisc = false`; para
+  apretarlo, `InpSmcRequireSweep = true`.
 - **La carita del gráfico está gris/tachada** → falta tildar "Permitir Algo Trading" en
   las propiedades del EA (F7 sobre el gráfico).
 - **El backtest no descarga ticks** → probar primero con modelado "1 minuto OHLC" para

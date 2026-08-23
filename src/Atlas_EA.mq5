@@ -19,6 +19,7 @@
 #include "include/TrendStrategy.mqh"
 #include "include/BreakoutStrategy.mqh"
 #include "include/ScalpStrategy.mqh"
+#include "include/SmcStrategy.mqh"
 #include "include/NewsFilter.mqh"
 #include "include/Dashboard.mqh"
 
@@ -50,6 +51,22 @@ input double InpAdxTrend         = 22.0;            // ADX H1 minimo para tenden
 input double InpSqueezeRatio     = 0.75;            // Compresion: ancho BB < ratio x prom
 input double InpAtrSlMult        = 1.5;             // Stop loss: multiplicador ATR M15
 input double InpMaxRangeAtrMult  = 1.2;             // Rango asiatico max (x ATR H1)
+
+input group "Smart Money (estructura + Order Block / FVG)"
+input bool   InpEnableSmc        = true;   // Activar Smart Money (tiene prioridad sobre tendencia)
+input int    InpSmcFractal       = 2;      // Amplitud del swing fractal (velas a cada lado)
+input int    InpSmcLookback      = 160;    // Velas M15 analizadas (estructura)
+input int    InpSmcMaxAgeBars    = 20;     // Antiguedad max del BOS/CHoCH (velas M15)
+input double InpSmcDisplacement  = 1.0;    // Desplazamiento min de la vela del quiebre (x rango medio; 0 = sin filtro)
+input bool   InpSmcRequireHtf    = true;   // Exigir que la estructura H1 acompane
+input bool   InpSmcRequireSweep  = false;  // Exigir barrido de liquidez previo (mas selectivo)
+input bool   InpSmcRequireDisc   = true;   // Comprar solo en descuento / vender solo en premium
+input bool   InpSmcNeedRejection = true;   // Exigir vela de rechazo al tocar la zona
+input bool   InpSmcUseFvg        = true;   // Refinar la zona con el FVG (imbalance)
+input bool   InpSmcAllowChoppy   = false;  // Permitir SMC en regimen lateral (mas trades, mas ruido)
+input double InpSmcSlBufferAtr   = 0.25;   // Colchon del SL bajo/sobre la zona (x ATR M15)
+input double InpSmcMaxSlAtr      = 3.0;    // Descartar el setup si el SL supera (x ATR M15)
+input int    InpSmcTvFilter      = 0;      // Confluencia rating TV: 0=ninguna, 1=solo H1, 2=M15+H1
 
 input group "Sesion y noticias (hora del SERVIDOR)"
 input int    InpSessionStart     = 8;               // Inicio ventana de entradas (Londres+NY, validado por backtest)
@@ -96,6 +113,7 @@ CRegimeDetector   *g_regime[];
 CTrendStrategy    *g_trend[];
 CBreakoutStrategy *g_breakout[];
 CScalpStrategy    *g_scalp[];       // NULL si el símbolo no scalpea
+CSmcStrategy      *g_smc[];
 int                g_hAtrM15[];
 
 datetime           g_lastM15[];
@@ -105,6 +123,7 @@ datetime           g_lastRetryLog[];  // throttle de logs transitorios
 datetime           g_lastScalpBlockLog[];
 string             g_cacheRegime[];
 string             g_cacheRating[];
+string             g_cacheSmc[];
 datetime           g_lastDashUpdate = 0;
 
 //--- Inicialización diferida por símbolo: al arrancar en un servidor, el
@@ -171,6 +190,13 @@ bool TryInitSymbol(const int i)
       g_hAtrM15[i] == INVALID_HANDLE)
       return false;
 
+   if(InpEnableSmc &&
+      !g_smc[i].Init(s, InpSmcFractal, InpSmcLookback, InpSmcMaxAgeBars,
+                     InpSmcDisplacement, InpSmcSlBufferAtr, InpSmcMaxSlAtr,
+                     InpSmcRequireHtf, InpSmcRequireSweep, InpSmcRequireDisc,
+                     InpSmcNeedRejection, InpSmcUseFvg, InpSmcAllowChoppy))
+      return false;
+
    //--- Estrategia de scalping (solo símbolos habilitados)
    if(IsScalpSymbol(s) && CheckPointer(g_scalp[i]) != POINTER_DYNAMIC)
      {
@@ -186,6 +212,7 @@ bool TryInitSymbol(const int i)
    g_symReady[i] = true;
    g_cacheRegime[i] = "cargando historia...";
    g_cacheRating[i] = "cargando historia...";
+   g_cacheSmc[i]    = (InpEnableSmc ? "cargando historia..." : "desactivado");
    g_notifier.Log(s + ": indicadores listos, operativo.");
    return true;
   }
@@ -229,6 +256,7 @@ int OnInit()
    ArrayResize(g_trend, n);
    ArrayResize(g_breakout, n);
    ArrayResize(g_scalp, n);
+   ArrayResize(g_smc, n);
    ArrayResize(g_hAtrM15, n);
    ArrayResize(g_lastM15, n);
    ArrayResize(g_lastM1, n);
@@ -237,6 +265,7 @@ int OnInit()
    ArrayResize(g_lastScalpBlockLog, n);
    ArrayResize(g_cacheRegime, n);
    ArrayResize(g_cacheRating, n);
+   ArrayResize(g_cacheSmc, n);
    ArrayResize(g_symReady, n);
 
    for(int i = 0; i < n; i++)
@@ -247,6 +276,7 @@ int OnInit()
       g_trend[i]    = new CTrendStrategy();
       g_breakout[i] = new CBreakoutStrategy();
       g_scalp[i]    = NULL;
+      g_smc[i]      = new CSmcStrategy();
       g_hAtrM15[i]  = INVALID_HANDLE;
       g_lastM15[i]  = 0;
       g_lastM1[i]   = 0;
@@ -256,6 +286,7 @@ int OnInit()
       g_symReady[i] = false;
       g_cacheRegime[i] = "esperando conexion...";
       g_cacheRating[i] = "esperando conexion...";
+      g_cacheSmc[i]    = (InpEnableSmc ? "esperando conexion..." : "desactivado");
       TryInitSymbol(i);          // si el terminal aún no conectó, se reintenta
      }
 
@@ -266,6 +297,12 @@ int OnInit()
    g_notifier.Log(StringFormat(
       "ATLAS EA iniciado. Simbolos: %s | Riesgo %.1f%%/op | Limite diario %.1f%% | Kill switch %.0f%%",
       InpSymbols, InpRiskPct, InpDailyLossPct, InpMaxDrawdownPct));
+   if(InpEnableSmc)
+      g_notifier.Log(StringFormat(
+         "Smart Money ACTIVO | fractal %d | H1 a favor: %s | barrido exigido: %s | descuento/premium: %s | lateral: %s | confluencia TV: %s",
+         InpSmcFractal, (InpSmcRequireHtf ? "si" : "no"), (InpSmcRequireSweep ? "si" : "no"),
+         (InpSmcRequireDisc ? "si" : "no"), (InpSmcAllowChoppy ? "si" : "no"),
+         (InpSmcTvFilter == 0 ? "ninguna" : (InpSmcTvFilter == 1 ? "solo H1" : "M15+H1"))));
    if(InpEnableScalp)
       g_notifier.Log(StringFormat(
          "Scalping ACTIVO en %s | Riesgo %.1f%%/scalp | RR %.1f | BE %.1fR | max %d/dia | hold %d min | sesion %02d-%02dh server",
@@ -290,6 +327,7 @@ void OnDeinit(const int reason)
       if(CheckPointer(g_trend[i])    == POINTER_DYNAMIC) { g_trend[i].Release();    delete g_trend[i]; }
       if(CheckPointer(g_breakout[i]) == POINTER_DYNAMIC) { g_breakout[i].Release(); delete g_breakout[i]; }
       if(CheckPointer(g_scalp[i])    == POINTER_DYNAMIC) { g_scalp[i].Release();    delete g_scalp[i]; }
+      if(CheckPointer(g_smc[i])      == POINTER_DYNAMIC) { g_smc[i].Release();      delete g_smc[i]; }
       if(g_hAtrM15[i] != INVALID_HANDLE)
          IndicatorRelease(g_hAtrM15[i]);
      }
@@ -404,6 +442,29 @@ void LogTransient(const int idx, const string msg)
   }
 
 //+------------------------------------------------------------------+
+//| Confluencia con el rating TradingView según el nivel exigido:    |
+//| 0 = ninguna · 1 = solo H1 (sesgo mayor) · 2 = M15 y H1           |
+//+------------------------------------------------------------------+
+bool TvConfirms(const ESignalDir dir, const ERating rM15, const ERating rH1, const int level)
+  {
+   if(level <= 0)
+      return true;
+   if(dir == SIGNAL_BUY)
+     {
+      if(rH1 < RATING_BUY)
+         return false;
+      return (level < 2 || rM15 >= RATING_BUY);
+     }
+   if(dir == SIGNAL_SELL)
+     {
+      if(rH1 > RATING_SELL)
+         return false;
+      return (level < 2 || rM15 <= RATING_SELL);
+     }
+   return false;
+  }
+
+//+------------------------------------------------------------------+
 //| Evalúa señales swing en la vela M15. Devuelve false SOLO ante    |
 //| condiciones transitorias (sin datos/cargando) para reintentar la |
 //| misma vela; true cuando la decisión fue definitiva.              |
@@ -414,7 +475,8 @@ bool EvaluateSymbol(const int idx)
 
    //--- Datos listos?
    if(!g_tvM15[idx].Ready() || !g_tvH1[idx].Ready() ||
-      !g_regime[idx].Ready() || !g_trend[idx].Ready() || !g_breakout[idx].Ready())
+      !g_regime[idx].Ready() || !g_trend[idx].Ready() || !g_breakout[idx].Ready() ||
+      (InpEnableSmc && !g_smc[idx].Ready()))
      {
       LogTransient(idx, symbol + ": historia/indicadores aun cargando, reintento en esta vela.");
       return false;
@@ -459,33 +521,44 @@ bool EvaluateSymbol(const int idx)
       return true;
      }
 
-   //--- Señal según régimen
+   //--- Señal. Smart Money tiene prioridad: es el modelo más selectivo
+   //--- (estructura + zona sin mitigar) y ya trae su propio filtro H1.
+   //--- Si no hay setup SMC, se recurre a la estrategia del régimen.
    SSignal sig;
    sig.dir = SIGNAL_NONE;
    bool fromBreakout = false;
+   bool fromSmc      = false;
 
-   if((regime == REGIME_TREND_UP || regime == REGIME_TREND_DOWN) && InpEnableTrend)
-      sig = g_trend[idx].Check(regime);
-   else if(regime == REGIME_SQUEEZE && InpEnableBreakout)
+   if(InpEnableSmc)
      {
-      sig = g_breakout[idx].Check(regime);
-      fromBreakout = (sig.dir != SIGNAL_NONE);
+      sig = g_smc[idx].Check(regime);
+      g_cacheSmc[idx] = g_smc[idx].Note();
+      fromSmc = (sig.dir != SIGNAL_NONE);
+     }
+
+   if(sig.dir == SIGNAL_NONE)
+     {
+      if((regime == REGIME_TREND_UP || regime == REGIME_TREND_DOWN) && InpEnableTrend)
+         sig = g_trend[idx].Check(regime);
+      else if(regime == REGIME_SQUEEZE && InpEnableBreakout)
+        {
+         sig = g_breakout[idx].Check(regime);
+         fromBreakout = (sig.dir != SIGNAL_NONE);
+        }
      }
 
    if(sig.dir == SIGNAL_NONE)
       return true;
 
-   //--- Confluencia con el rating TradingView (M15 y H1 a favor)
-   if(sig.dir == SIGNAL_BUY && !(rM15 >= RATING_BUY && rH1 >= RATING_BUY))
+   //--- Confluencia con el rating TradingView.
+   //--- SMC usa su propia escala (InpSmcTvFilter): un CHoCH es por definición
+   //--- una reversión temprana y los indicadores del rating van con retraso,
+   //--- así que exigirles confirmación anularía casi todos esos setups.
+   int tvLevel = (fromSmc ? InpSmcTvFilter : 2);
+   if(!TvConfirms(sig.dir, rM15, rH1, tvLevel))
      {
-      g_notifier.Log(symbol + ": senal COMPRA descartada, rating TV no confirma (" +
-                     g_cacheRating[idx] + ")");
-      return true;
-     }
-   if(sig.dir == SIGNAL_SELL && !(rM15 <= RATING_SELL && rH1 <= RATING_SELL))
-     {
-      g_notifier.Log(symbol + ": senal VENTA descartada, rating TV no confirma (" +
-                     g_cacheRating[idx] + ")");
+      g_notifier.Log(symbol + ": senal " + (sig.dir == SIGNAL_BUY ? "COMPRA" : "VENTA") +
+                     " descartada, rating TV no confirma (" + g_cacheRating[idx] + ")");
       return true;
      }
 
@@ -502,6 +575,8 @@ bool EvaluateSymbol(const int idx)
       g_risk.RegisterOpen(symbol);
       if(fromBreakout)
          g_breakout[idx].MarkTraded();
+      if(fromSmc)
+         g_smc[idx].MarkTraded();          // la zona queda consumida
      }
    return true;
   }
@@ -568,16 +643,18 @@ void UpdateDashboard()
       return;                          // en VPS no hay pantalla que dibujar
 
    int n = ArraySize(g_symbols);
-   string regimes[], ratings[], positions[];
+   string regimes[], ratings[], smc[], positions[];
    int trades[];
    ArrayResize(regimes, n);
    ArrayResize(ratings, n);
+   ArrayResize(smc, n);
    ArrayResize(positions, n);
    ArrayResize(trades, n);
    for(int i = 0; i < n; i++)
      {
       regimes[i]   = g_cacheRegime[i];
       ratings[i]   = g_cacheRating[i];
+      smc[i]       = g_cacheSmc[i];
       positions[i] = g_trade.PositionInfo(g_symbols[i]);
       trades[i]    = g_risk.TradesToday(g_symbols[i]);
      }
@@ -604,5 +681,5 @@ void UpdateDashboard()
    g_dash.Update(state, stateColor,
                  AccountInfoDouble(ACCOUNT_EQUITY), g_risk.DayPnLPct(),
                  g_risk.DrawdownFromPeakPct(), g_risk.OpenRiskPct(),
-                 newsLine, g_symbols, regimes, ratings, positions, trades);
+                 newsLine, g_symbols, regimes, ratings, smc, positions, trades);
   }

@@ -14,6 +14,7 @@
 #include "include/RiskManager.mqh"
 #include "include/TVRating.mqh"
 #include "include/RegimeDetector.mqh"
+#include "include/SmcStrategy.mqh"
 
 input string InpTestSymbolGold = "XAUUSD";  // Simbolo oro del broker
 input string InpTestSymbolEur  = "EURUSD";  // Simbolo EURUSD del broker
@@ -80,6 +81,77 @@ void TestDateHelpers()
    Assert(DateOf(t) == StringToTime("2026.08.03 00:00"), "DateOf recorta la hora");
    Assert(DateOf(t) == DateOf(StringToTime("2026.08.03 02:10")), "DateOf: mismo dia -> igual");
    Assert(DateOf(t) != DateOf(StringToTime("2026.08.04 02:10")), "DateOf: otro dia -> distinto");
+  }
+
+
+//+------------------------------------------------------------------+
+//| Helpers puros de Smart Money. Los arrays van 0 = vela mas         |
+//| reciente, indice mayor = mas vieja (igual que el modulo).         |
+//+------------------------------------------------------------------+
+void TestSmcHelpers()
+  {
+   double hi[10] = {10, 11, 12, 13, 14, 20, 13, 12, 11, 10};
+   Assert(SmcIsSwingHigh(hi, 5, 2, 10) == true,  "SMC: fractal marca el maximo en 5");
+   Assert(SmcIsSwingHigh(hi, 4, 2, 10) == false, "SMC: 4 no es maximo (hay uno mayor al lado)");
+   Assert(SmcIsSwingHigh(hi, 1, 2, 10) == false, "SMC: borde nuevo sin velas suficientes -> no swing");
+   Assert(SmcIsSwingHigh(hi, 8, 2, 10) == false, "SMC: borde viejo sin velas suficientes -> no swing");
+
+   double lo[10] = {20, 19, 18, 17, 16, 5, 16, 17, 18, 19};
+   Assert(SmcIsSwingLow(lo, 5, 2, 10) == true,  "SMC: fractal marca el minimo en 5");
+   Assert(SmcIsSwingLow(lo, 4, 2, 10) == false, "SMC: 4 no es minimo");
+
+   Assert(SmcInDiscount(140.0, 100.0, 200.0) == true,  "SMC: 140 en descuento (rango 100-200)");
+   Assert(SmcInDiscount(160.0, 100.0, 200.0) == false, "SMC: 160 NO esta en descuento");
+   Assert(SmcInDiscount(150.0, 100.0, 200.0) == true,  "SMC: equilibrio cuenta como descuento");
+   Assert(SmcInPremium(160.0, 100.0, 200.0)  == true,  "SMC: 160 en premium");
+   Assert(SmcInPremium(140.0, 100.0, 200.0)  == false, "SMC: 140 NO esta en premium");
+   Assert(SmcInDiscount(150.0, 200.0, 100.0) == false, "SMC: rango invertido -> falso");
+
+   double oT = 0.0, oB = 0.0;
+   Assert(SmcOverlap(110.0, 100.0, 105.0, 95.0, oT, oB) == true,
+          "SMC: Order Block y FVG se solapan");
+   Assert(oT == 105.0 && oB == 100.0, "SMC: la zona se refina a la interseccion 100-105");
+   Assert(SmcOverlap(110.0, 100.0, 99.0, 90.0, oT, oB) == false,
+          "SMC: zonas separadas -> sin interseccion");
+
+   double mrHi[3] = {10, 10, 10};
+   double mrLo[3] = {8, 6, 4};
+   Assert(MathAbs(SmcMeanRange(mrHi, mrLo, 0, 3, 3) - 4.0) < 1e-9, "SMC: rango medio = 4");
+   Assert(MathAbs(SmcMeanRange(mrHi, mrLo, 1, 2, 3) - 5.0) < 1e-9, "SMC: rango medio parcial = 5");
+   Assert(SmcMeanRange(mrHi, mrLo, 5, 3, 3) == 0.0, "SMC: tramo fuera del array -> 0");
+  }
+
+//+------------------------------------------------------------------+
+//| Estructura: BOS alcista, CHoCH bajista y filtro de desplazamiento|
+//+------------------------------------------------------------------+
+void TestSmcStructure()
+  {
+   //--- Caso 1: subida que cierra sobre el maximo de la barra 7.
+   double hi1[12] = {105, 106, 107, 101,  99,  97, 100, 104,  98,  96,  99, 101};
+   double lo1[12] = {103, 104, 105,  99,  97,  95,  98, 102,  96,  94,  97,  99};
+   double cl1[12] = {104, 105, 106, 100,  98,  96,  99, 103,  97,  95,  98, 100};
+
+   int dir = 0, bbar = -1, origin = -1, prevDir = 0;
+   SmcScanStructure(hi1, lo1, cl1, 12, 1, 1.0, dir, bbar, origin, prevDir);
+   Assert(dir == 1,       "SMC estructura: detecta quiebre ALCISTA");
+   Assert(bbar == 2,      "SMC estructura: la vela del quiebre es la 2");
+   Assert(origin == 5,    "SMC estructura: la pierna nace en el minimo de la vela 5");
+   Assert(prevDir == 0,   "SMC estructura: primer quiebre -> BOS (no CHoCH)");
+
+   //--- Mismo caso con desplazamiento exigente: ninguna vela lo cumple
+   SmcScanStructure(hi1, lo1, cl1, 12, 1, 5.0, dir, bbar, origin, prevDir);
+   Assert(dir == 0, "SMC estructura: sin desplazamiento suficiente no hay quiebre");
+
+   //--- Caso 2: el mismo tramo + 4 velas nuevas que rompen a la baja.
+   double hi2[16] = { 99, 103, 104, 103, 105, 106, 107, 101,  99,  97, 100, 104,  98,  96,  99, 101};
+   double lo2[16] = { 97,  97, 102, 101, 103, 104, 105,  99,  97,  95,  98, 102,  96,  94,  97,  99};
+   double cl2[16] = { 98,  98, 103, 102, 104, 105, 106, 100,  98,  96,  99, 103,  97,  95,  98, 100};
+
+   SmcScanStructure(hi2, lo2, cl2, 16, 1, 1.0, dir, bbar, origin, prevDir);
+   Assert(dir == -1,     "SMC estructura: el ultimo quiebre es BAJISTA");
+   Assert(bbar == 1,     "SMC estructura: la vela del quiebre bajista es la 1");
+   Assert(origin == 2,   "SMC estructura: la pierna bajista nace en el maximo de la vela 2");
+   Assert(prevDir == 1,  "SMC estructura: venia de un quiebre alcista -> CHoCH");
   }
 
 //+------------------------------------------------------------------+
@@ -208,6 +280,31 @@ void TestIndicatorWiring(const string symbol)
    else
       Print("SKIP  RegimeDetector ", symbol, ": historia insuficiente aun");
    rd.Release();
+
+   CSmcStrategy smc;
+   if(!smc.Init(symbol, 2, 160, 20, 1.0, 0.25, 3.0, true, false, true, true, true, false))
+     {
+      Assert(false, "SmcStrategy: creacion de handles en " + symbol);
+      return;
+     }
+   waited = 0;
+   while(!smc.Ready() && waited < 20)
+     {
+      Sleep(1000);
+      waited++;
+     }
+   if(smc.Ready())
+     {
+      SSignal sg = smc.Check(REGIME_TREND_UP);
+      Assert(sg.dir == SIGNAL_NONE || sg.dir == SIGNAL_BUY || sg.dir == SIGNAL_SELL,
+             "SMC " + symbol + ": devuelve una senal valida");
+      if(sg.dir != SIGNAL_NONE)
+         Assert(sg.sl_price > 0.0, "SMC " + symbol + ": toda senal trae SL definido");
+      Print("INFO  ", symbol, " SMC = ", smc.Note());
+     }
+   else
+      Print("SKIP  SmcStrategy ", symbol, ": historia M15/H1 insuficiente aun");
+   smc.Release();
   }
 
 //+------------------------------------------------------------------+
@@ -217,6 +314,8 @@ void OnStart()
    TestRatingScale();
    TestSessionFilter();
    TestDateHelpers();
+   TestSmcHelpers();
+   TestSmcStructure();
 
    CNotifier notifier;
    notifier.Init(false);
