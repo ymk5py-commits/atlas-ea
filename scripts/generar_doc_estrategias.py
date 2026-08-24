@@ -118,13 +118,14 @@ story.append(P("Configuración vigente: cada instrumento con lo suyo", "h1"))
 story.append(P(
     "La versión 2 abandonó la idea de aplicar las mismas estrategias a todo. Ahora cada instrumento "
     "opera con los motores que le sirven, en la sesión de mercado donde ese instrumento realmente se "
-    "mueve. El oro se opera en Londres, donde tiene su mayor volumen; el euro en Nueva York.", "p"))
+    "mueve. Tras medir cada motor contra tres años y medio de historia, solo Smart Money demostró "
+    "ventaja — y solo en el oro. El euro quedó sin operar hasta encontrarle una estrategia que funcione.", "p"))
 
 story.append(Spacer(1, 4))
 story.append(tabla([
     ["Instrumento", "Estrategias activas", "Sesión en que opera"],
-    ["<b>XAUUSD</b> (oro)", "Candle Range Theory + Smart Money Concepts", "Londres · 08:00 a 17:00 hora de Londres"],
-    ["<b>EURUSD</b>", "Candle Range Theory", "Nueva York · 08:00 a 13:00 hora de Nueva York"],
+    ["<b>XAUUSD</b> (oro)", "Smart Money Concepts", "Londres · 08:00 a 17:00 hora de Londres"],
+    ["<b>EURUSD</b>", "<font color='#8A6100'>Ninguna — no opera</font>", "Sin estrategia con ventaja demostrada"],
 ], [3.6 * cm, 7.2 * cm, 5.6 * cm]))
 
 story.append(Spacer(1, 6))
@@ -137,8 +138,8 @@ story.append(Spacer(1, 10))
 story.append(P("Motores disponibles y su estado", "h1"))
 story.append(tabla([
     ["Motor", "Estado actual", "Detalle"],
-    ["Candle Range Theory (CRT)", "<font color='#1D7A4C'><b>Activo</b></font> en oro y euro", "Motor principal de la v2"],
-    ["Smart Money Concepts (SMC)", "<font color='#1D7A4C'><b>Activo</b></font> solo en oro", "Modelo institucional de estructura"],
+    ["Smart Money Concepts (SMC)", "<font color='#1D7A4C'><b>Activo</b></font> solo en oro", "Único motor con ventaja medida: +12,2% y la caída más baja"],
+    ["Candle Range Theory (CRT)", "<font color='#9E2B25'>Apagado</font>", "Restaba valor en ambos instrumentos (ver resultados)"],
     ["Pullback de tendencia", "<font color='#8A6100'>Disponible, apagado</font>", "Motor validado de la v1, hoy sin instrumentos asignados"],
     ["Ruptura del rango asiático", "<font color='#8A6100'>Disponible, apagado</font>", "Motor de la v1, hoy sin instrumentos asignados"],
     ["Scalping de momentum", "<font color='#9E2B25'>Apagado</font>", "Retirado tras dar −96% en la prueba histórica"],
@@ -378,13 +379,6 @@ story.append(tabla([
 ], [7.2 * cm, 3.4 * cm, 2.6 * cm, 3.2 * cm]))
 
 story.append(Spacer(1, 8))
-story.append(aviso(
-    "<b>Los motores nuevos (CRT y Smart Money) todavía no tienen resultados históricos publicados en este "
-    "documento.</b> El repositorio incluye el script de pruebas comparativas para medirlos —enfrentando "
-    "cada instrumento con cada motor por separado— pero esas corridas están pendientes. Hasta tenerlas, "
-    "su rendimiento a largo plazo es desconocido: el único motor con validación histórica completa sigue "
-    "siendo el pullback de tendencia de la versión 1.", AMBAR))
-
 story.append(Spacer(1, 8))
 story.append(aviso(
     "<b>Expectativa realista.</b> El único motor validado rinde aproximadamente <b>6% anual</b> en la "

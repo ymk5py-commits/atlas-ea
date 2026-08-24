@@ -24,7 +24,7 @@ fi
 : "${ATLAS_DAILY_LOSS:=5.0}"
 : "${ATLAS_MAX_DD:=30.0}"
 # Estrategias POR SIMBOLO (listas separadas por coma; vacio = ninguna)
-: "${ATLAS_CRT_SYMBOLS:=EURUSD,XAUUSD}"
+: "${ATLAS_CRT_SYMBOLS:=}"                # apagado: resta en backtest (ver src/Atlas_EA.mq5)
 : "${ATLAS_SMC_SYMBOLS:=XAUUSD}"
 : "${ATLAS_TREND_SYMBOLS:=}"
 : "${ATLAS_BREAKOUT_SYMBOLS:=}"

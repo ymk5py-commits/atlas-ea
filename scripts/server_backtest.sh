@@ -27,11 +27,17 @@ TO="${BT_TO:-2026.07.31}"
 RESULTS=/tmp/results.csv
 echo "tag,simbolo,crt,smc,balance_final,trades,dd_max_diario" > "$RESULTS"
 
+# OJO: MetaTrader IGNORA los inputs de texto que se pasan VACIOS en
+# [TesterInputs] y aplica el valor por defecto del codigo. Para apagar una
+# estrategia hay que darle un simbolo inexistente, no una cadena vacia.
+NADA="__NINGUNO__"
+
 run_test() {
   local tag="$1" symbol="$2" crt="$3" smc="$4"
-  printf '[Common]\r\nLogin=%s\r\nPassword=%s\r\nServer=%s\r\n[Tester]\r\nExpert=Atlas\\Atlas_EA\r\nSymbol=%s\r\nPeriod=M15\r\nModel=1\r\nFromDate=%s\r\nToDate=%s\r\nDeposit=500\r\nCurrency=USD\r\nLeverage=100\r\nShutdownTerminal=1\r\nVisual=0\r\n[TesterInputs]\r\nInpSymbols=%s\r\nInpRiskPct=1.5\r\nInpRR=2.0\r\nInpBeTriggerR=1.0\r\nInpTrailAtrMult=2.0\r\nInpMaxDrawdownPct=100\r\nInpCrtSymbols=%s\r\nInpSmcSymbols=%s\r\nInpTrendSymbols=\r\nInpBreakoutSymbols=\r\nInpScalpSymbols=\r\nInpNewYorkSymbols=EURUSD\r\nInpLondonSymbols=XAUUSD\r\n' \
+  local crt_v="${crt:-$NADA}" smc_v="${smc:-$NADA}"
+  printf '[Common]\r\nLogin=%s\r\nPassword=%s\r\nServer=%s\r\n[Tester]\r\nExpert=Atlas\\Atlas_EA\r\nSymbol=%s\r\nPeriod=M15\r\nModel=1\r\nFromDate=%s\r\nToDate=%s\r\nDeposit=500\r\nCurrency=USD\r\nLeverage=100\r\nShutdownTerminal=1\r\nVisual=0\r\n[TesterInputs]\r\nInpSymbols=%s\r\nInpRiskPct=1.5\r\nInpRR=2.0\r\nInpBeTriggerR=1.0\r\nInpTrailAtrMult=2.0\r\nInpMaxDrawdownPct=100\r\nInpCrtSymbols=%s\r\nInpSmcSymbols=%s\r\nInpTrendSymbols=%s\r\nInpBreakoutSymbols=%s\r\nInpScalpSymbols=%s\r\nInpNewYorkSymbols=EURUSD\r\nInpLondonSymbols=XAUUSD\r\n' \
     "$MT_LOGIN" "$MT_PASSWORD" "$MT_SERVER" "$symbol" "$FROM" "$TO" \
-    "$symbol" "$crt" "$smc" > "$MT5/bt.ini"
+    "$symbol" "$crt_v" "$smc_v" "$NADA" "$NADA" "$NADA" > "$MT5/bt.ini"
 
   find "$MT5/Tester" -mindepth 1 -maxdepth 1 -type d -name 'Agent-*' -exec rm -rf {} + 2>/dev/null
   xvfb-run -a $W 'C:\mt5\terminal64.exe' /portable '/config:C:\mt5\bt.ini' >/dev/null 2>&1
@@ -54,6 +60,17 @@ run_test() {
   echo "$tag,$symbol,${crt:-no},${smc:-no},$bal,$trades,$dd" >> "$RESULTS"
   echo "[bt] $tag ($symbol | CRT=${crt:-no} SMC=${smc:-no}): balance=$bal | trades=$trades | DD diario max=$dd%"
 }
+
+# CONTROL: todo apagado. Si esto NO da 0 trades, los overrides no se aplican
+# y el resto de los numeros no vale nada — se aborta.
+run_test   control_nada    XAUUSD   ""       ""
+CONTROL_TRADES=$(grep "^control_nada," "$RESULTS" | cut -d, -f6)
+if [ "${CONTROL_TRADES:-0}" != "0" ]; then
+  echo "[bt] ABORTADO: el control con todo apagado hizo $CONTROL_TRADES trades."
+  echo "[bt] Los overrides de [TesterInputs] NO se estan aplicando; los resultados serian invalidos."
+  exit 1
+fi
+echo "[bt] control OK (0 trades con todo apagado) — los overrides se aplican, sigo."
 
 #          tag             simbolo  CRT      SMC
 run_test   eur_crt         EURUSD   EURUSD   ""

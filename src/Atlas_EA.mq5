@@ -47,7 +47,11 @@ input double InpTrailAtrMult     = 2.0;             // Trailing: multiplicador A
 
 input group "Estrategias — que simbolo opera cual (vacio = ninguno)"
 // Cada lista es un subconjunto de InpSymbols. Un simbolo puede llevar varias.
-input string InpCrtSymbols       = "EURUSD,XAUUSD"; // Simbolos con Candle Range Theory
+// Backtest 2023-2026 (500 USD): SMC solo en oro = 561.02 (+12.2%, DD 8.8%) ·
+// CRT+SMC en oro = 522.63 · CRT solo en oro = 493.74 · CRT en EURUSD = 297.26
+// (-40.5%). CRT resta en ambos instrumentos, asi que queda apagado. El euro
+// no opera hasta encontrarle una estrategia con ventaja demostrada.
+input string InpCrtSymbols       = "";              // Simbolos con Candle Range Theory (apagado: resta en backtest)
 input string InpSmcSymbols       = "XAUUSD";        // Simbolos con Smart Money
 input string InpTrendSymbols     = "";              // Simbolos con tendencia (pullback)
 input string InpBreakoutSymbols  = "";              // Simbolos con ruptura asiatica
