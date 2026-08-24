@@ -55,8 +55,9 @@ public:
                const double equity, const double dayPnlPct, const double ddPct,
                const double openRiskPct, const string nextNews,
                const string &symbols[], const string &regimes[],
-               const string &ratings[], const string &positions[],
-               const int &tradesToday[])
+               const string &ratings[], const string &smc[],
+               const string &crt[], const string &sessions[],
+               const string &positions[], const int &tradesToday[])
      {
       color cWhite = clrSilver;
       color cVal   = clrWhite;
@@ -76,8 +77,11 @@ public:
       for(int s = 0; s < ArraySize(symbols); s++)
         {
          SetLine(i++, StringFormat("%s  [%d ops hoy]", symbols[s], tradesToday[s]), cVal);
+         SetLine(i++, "  Sesion : " + sessions[s], cWhite);
          SetLine(i++, "  Regimen: " + regimes[s], cWhite);
          SetLine(i++, "  Rating : " + ratings[s], cWhite);
+         SetLine(i++, "  SmartM.: " + smc[s], cWhite);
+         SetLine(i++, "  CRT    : " + crt[s], cWhite);
          SetLine(i++, "  Posic. : " + (positions[s] == "" ? "---" : positions[s]),
                  (positions[s] == "" ? cWhite : cGood));
         }

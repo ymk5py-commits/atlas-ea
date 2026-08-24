@@ -10,7 +10,7 @@
 set -uo pipefail
 
 NAME="atlas-ea"
-IMAGE="atlas-ea:1.0"
+IMAGE="atlas-ea:2.0"
 
 # El escritorio gráfico puede tener un docker de snap (daemon distinto, sin
 # nuestras imágenes). Forzamos el binario y el socket del sistema.
@@ -36,8 +36,8 @@ read -rp "  Servidor  [MetaQuotes-Demo]  : " MT_SERVER
 MT_SERVER="${MT_SERVER:-MetaQuotes-Demo}"
 read -rsp "  Contraseña (no se muestra)   : " MT_PASSWORD
 echo
-read -rp "  Símbolos  [XAUUSD,EURUSD]    : " ATLAS_SYMBOLS
-ATLAS_SYMBOLS="${ATLAS_SYMBOLS:-XAUUSD,EURUSD}"
+read -rp "  Símbolos  [EURUSD,XAUUSD]    : " ATLAS_SYMBOLS
+ATLAS_SYMBOLS="${ATLAS_SYMBOLS:-EURUSD,XAUUSD}"
 
 if [ -z "$MT_LOGIN" ] || [ -z "$MT_PASSWORD" ]; then
    echo "  ✗ Login y contraseña son obligatorios."

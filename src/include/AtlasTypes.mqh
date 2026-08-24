@@ -39,8 +39,28 @@ struct SSignal
   {
    ESignalDir        dir;
    double            sl_price;   // stop loss propuesto (precio)
+   double            tp_price;   // objetivo fijo; 0 = lo gestiona el TradeManager
    string            reason;     // descripción para log/notificación
   };
+
+//+------------------------------------------------------------------+
+//| Mitad inferior del rango (descuento): la zona donde se compra.   |
+//| Mitad superior (premium): donde se vende. El equilibrio (50%)    |
+//| cuenta para ambos lados.                                         |
+//+------------------------------------------------------------------+
+bool PriceInDiscount(const double price, const double rangeLow, const double rangeHigh)
+  {
+   if(rangeHigh <= rangeLow)
+      return false;
+   return (price <= rangeLow + 0.5 * (rangeHigh - rangeLow));
+  }
+
+bool PriceInPremium(const double price, const double rangeLow, const double rangeHigh)
+  {
+   if(rangeHigh <= rangeLow)
+      return false;
+   return (price >= rangeLow + 0.5 * (rangeHigh - rangeLow));
+  }
 
 //+------------------------------------------------------------------+
 //| Convierte el promedio de votos (-1..+1) a la escala TradingView  |
