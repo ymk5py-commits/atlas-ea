@@ -32,10 +32,15 @@ umask 077
   printf 'MT_LOGIN=%s\n'      "$MT_LOGIN"
   printf 'MT_PASSWORD=%s\n'   "$MT_PASSWORD"
   printf 'MT_SERVER=%s\n'     "$MT_SERVER"
-  printf 'ATLAS_SYMBOLS=XAUUSD,EURUSD\n'
+  printf 'ATLAS_SYMBOLS=EURUSD,XAUUSD\n'
   printf 'ATLAS_RISK=1.5\n'
   printf 'ATLAS_DAILY_LOSS=5.0\n'
   printf 'ATLAS_MAX_DD=50.0\n'
+  printf 'ATLAS_CRT_SYMBOLS=EURUSD,XAUUSD\n'
+  printf 'ATLAS_SMC_SYMBOLS=XAUUSD\n'
+  printf 'ATLAS_NY_SYMBOLS=EURUSD\n'
+  printf 'ATLAS_LONDON_SYMBOLS=XAUUSD\n'
+  printf 'ATLAS_LOCAL_GMT_OFFSET=-3\n'
 } > "$ENVFILE"
 chmod 600 "$ENVFILE"
 unset MT_PASSWORD

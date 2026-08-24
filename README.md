@@ -315,6 +315,35 @@ semana) y no depende de cómo estén escritos.
 | `InpNewsCurrencies` | `USD,EUR,GBP` | Monedas cuyo calendario económico se vigila |
 | `InpNewsKeywords` | *(vacío)* | Vacío = pausar ante cualquier evento de alto impacto |
 
+## Actualizar el bot en el servidor (Docker)
+
+Si el bot corre en un servidor Linux con el contenedor Docker del repo, la
+actualización completa es **un comando**:
+
+```
+bash ~/atlas-ea/docker/update_atlas.sh
+```
+
+Ese script hace `git pull`, corre el verificador estático, **recompila el EA dentro
+del build de la imagen** (el build falla si MetaEditor reporta un error — en ese caso
+el bot viejo sigue corriendo intacto) y relanza el contenedor leyendo las credenciales
+de `~/atlas-ea/.env` (las guarda `docker/set_password.sh`, una sola vez).
+
+Al final tiene que aparecer en el log `ATLAS EA v2.00 iniciado` y una línea por
+símbolo con sus estrategias y su sesión traducida a hora del servidor y a la tuya.
+
+Para el backtest A/B en el servidor (contenedor descartable, no toca el bot vivo):
+
+```
+docker run --rm --env-file ~/atlas-ea/.env \
+  -v ~/atlas-ea/scripts/server_backtest.sh:/bt.sh atlas-ea:2.0 bash /bt.sh
+```
+
+Corre 4 pasadas: EURUSD solo CRT, y el oro con CRT+SMC, solo CRT y solo SMC — para
+medir qué aporta cada estrategia. En el tester el EA asume bróker EET (UTC+2/+3
+europeo), la convención de MetaQuotes-Demo; para otro huso, fijar
+`InpServerGmtOffset` en el script.
+
 ## Problemas frecuentes
 
 - **"simbolo no disponible"** al iniciar → el broker usa otro nombre (GOLD, XAUUSD.a…):

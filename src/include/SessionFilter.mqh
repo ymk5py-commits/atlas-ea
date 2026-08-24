@@ -189,6 +189,17 @@ public:
      {
       if(m_offsetIsManual)
          return m_manualOffsetSec;
+      //--- En el Strategy Tester TimeGMT() devuelve la hora simulada del
+      //--- servidor, asi que la resta daria 0 y las sesiones quedarian
+      //--- corridas 2-3 horas en todo backtest. Se asume la convencion EET
+      //--- del broker (UTC+2 invierno / UTC+3 verano EUROPEO), que es la de
+      //--- MetaQuotes-Demo y la mayoria. Broker distinto en backtest ->
+      //--- fijar InpServerGmtOffset a mano.
+      if((bool)MQLInfoInteger(MQL_TESTER))
+        {
+         datetime approxUtc = (datetime)((long)TimeTradeServer() - 2 * 3600);
+         return (IsEuDst(approxUtc) ? 3 : 2) * 3600;
+        }
       long diff = (long)TimeTradeServer() - (long)TimeGMT();
       long q    = (diff + (diff >= 0 ? 450 : -450)) / 900;
       return (int)(q * 900);

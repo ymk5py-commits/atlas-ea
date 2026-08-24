@@ -6,7 +6,7 @@
 //| Validar SIEMPRE en backtest y cuenta demo antes de dinero real.  |
 //+------------------------------------------------------------------+
 #property copyright "ATLAS EA — uso personal"
-#property version   "1.00"
+#property version   "2.00"
 #property strict
 
 #include "include/AtlasTypes.mqh"
@@ -408,7 +408,7 @@ int OnInit()
 
    EventSetTimer(1);
    g_notifier.Log(StringFormat(
-      "ATLAS EA iniciado. Simbolos: %s | Riesgo %.1f%%/op | Limite diario %.1f%% | Kill switch %.0f%%",
+      "ATLAS EA v2.00 iniciado. Simbolos: %s | Riesgo %.1f%%/op | Limite diario %.1f%% | Kill switch %.0f%%",
       InpSymbols, InpRiskPct, InpDailyLossPct, InpMaxDrawdownPct));
    //--- Una linea por simbolo: que corre, en que ventana, y esa ventana
    //--- traducida a hora del servidor y a la hora del usuario. Es el
