@@ -104,45 +104,116 @@ story.append(P("Bot de trading automatizado para MetaTrader 5 — documentación
 story.append(Spacer(1, 10))
 story.append(tabla([
     ["Dato", "Valor"],
+    ["Versión", "v2 — estrategias asignadas por instrumento y sesión"],
     ["Instrumentos", "XAUUSD (oro) y EURUSD"],
     ["Plataforma", "MetaTrader 5 · Expert Advisor en MQL5"],
     ["Infraestructura", "Contenedor Docker en servidor propio, operando 24/5"],
     ["Cuenta", "Demo 110545149 (MetaQuotes-Demo) — dinero ficticio, en validación"],
-    ["Fecha del documento", "21 de agosto de 2026"],
+    ["Fecha del documento", "23 de agosto de 2026"],
     ["Código fuente", "github.com/ymk5py-commits/atlas-ea (repositorio privado)"],
 ], [4.6 * cm, 11.8 * cm]))
 
 story.append(Spacer(1, 14))
-story.append(P("Cómo decide el bot", "h1"))
+story.append(P("Configuración vigente: cada instrumento con lo suyo", "h1"))
 story.append(P(
-    "El bot no aplica una sola estrategia fija. Cada 15 minutos clasifica en qué estado está el mercado "
-    "y, según ese estado, decide cuál de sus motores usar — o si conviene no operar. La decisión de "
-    "quedarse afuera es parte de la estrategia: en mercados laterales sin dirección clara, no operar "
-    "evita las pérdidas por ruido que destruyen la mayoría de los sistemas automáticos.", "p"))
+    "La versión 2 abandonó la idea de aplicar las mismas estrategias a todo. Ahora cada instrumento "
+    "opera con los motores que le sirven, en la sesión de mercado donde ese instrumento realmente se "
+    "mueve. El oro se opera en Londres, donde tiene su mayor volumen; el euro en Nueva York.", "p"))
 
 story.append(Spacer(1, 4))
 story.append(tabla([
-    ["Estado detectado", "Cómo se identifica", "Qué hace el bot"],
-    ["<b>Tendencia</b> (alcista o bajista)",
-     "ADX de 1 hora supera el umbral 22, con dirección definida por DI+ / DI−",
-     "Activa el motor de <b>pullback</b>: espera un retroceso y entra a favor de la tendencia"],
-    ["<b>Compresión</b>",
-     "El ancho de las Bandas de Bollinger de 15 min cae por debajo del 75% de su promedio de las últimas 24 horas",
-     "Activa el motor de <b>ruptura</b>: espera el quiebre del rango asiático"],
-    ["<b>Lateral sin dirección</b>",
-     "No hay fuerza de tendencia ni compresión significativa",
-     "<b>No opera.</b> Espera a que el mercado defina"],
-], [3.9 * cm, 6.6 * cm, 5.9 * cm]))
+    ["Instrumento", "Estrategias activas", "Sesión en que opera"],
+    ["<b>XAUUSD</b> (oro)", "Candle Range Theory + Smart Money Concepts", "Londres · 08:00 a 17:00 hora de Londres"],
+    ["<b>EURUSD</b>", "Candle Range Theory", "Nueva York · 08:00 a 13:00 hora de Nueva York"],
+], [3.6 * cm, 7.2 * cm, 5.6 * cm]))
+
+story.append(Spacer(1, 6))
+story.append(aviso(
+    "<b>El bot ajusta los husos horarios solo.</b> Las horas se configuran en la hora local de cada plaza "
+    "financiera y el bot las convierte automáticamente, contemplando el horario de verano de cada país. "
+    "No hay que recalcular nada cuando cambia la hora en Europa o Estados Unidos."))
+
+story.append(Spacer(1, 10))
+story.append(P("Motores disponibles y su estado", "h1"))
+story.append(tabla([
+    ["Motor", "Estado actual", "Detalle"],
+    ["Candle Range Theory (CRT)", "<font color='#1D7A4C'><b>Activo</b></font> en oro y euro", "Motor principal de la v2"],
+    ["Smart Money Concepts (SMC)", "<font color='#1D7A4C'><b>Activo</b></font> solo en oro", "Modelo institucional de estructura"],
+    ["Pullback de tendencia", "<font color='#8A6100'>Disponible, apagado</font>", "Motor validado de la v1, hoy sin instrumentos asignados"],
+    ["Ruptura del rango asiático", "<font color='#8A6100'>Disponible, apagado</font>", "Motor de la v1, hoy sin instrumentos asignados"],
+    ["Scalping de momentum", "<font color='#9E2B25'>Apagado</font>", "Retirado tras dar −96% en la prueba histórica"],
+], [4.6 * cm, 4.6 * cm, 7.2 * cm]))
+
+story.append(PageBreak())
+
+# ══════════════ CRT ══════════════
+story.append(P("Motor 1 — Candle Range Theory (ciclo AMD)", "h1"))
+story.append(P(
+    "La idea de fondo: una vela de temporalidad mayor no es un punto en el gráfico, es un <b>rango</b> con "
+    "un ciclo adentro. Ese ciclo tiene tres fases — Acumulación, Manipulación y Distribución — y la "
+    "estrategia opera la tercera, que es la que paga.", "p"))
+story.append(tabla([
+    ["Fase", "Qué ocurre en el mercado", "Qué hace el bot"],
+    ["<b>A</b>cumulación", "Una vela de 4 horas define un rango de precios: su máximo y su mínimo",
+     "Toma esa vela como referencia. La descarta si es un doji sin recorrido o una vela gigante que ya se movió todo"],
+    ["<b>M</b>anipulación", "La vela siguiente perfora uno de los extremos, caza los stops de quienes estaban posicionados, y vuelve adentro del rango",
+     "Detecta esa purga. Si perfora los dos extremos, o si la perforación es demasiado profunda, la descarta: eso ya no es barrido, es ruptura real"],
+    ["<b>D</b>istribución", "El precio recorre hasta el extremo <b>opuesto</b> del rango",
+     "Entra cuando el precio cierra de vuelta dentro del rango con vela de rechazo. El objetivo es el extremo opuesto"],
+], [2.6 * cm, 6.6 * cm, 7.2 * cm]))
+
+story.append(Spacer(1, 8))
+story.append(P("Filtros que debe pasar la señal", "h2"))
+story.append(tabla([
+    ["Filtro", "Regla"],
+    ["Ubicación en el rango", "Solo vende desde la mitad superior (premium) y solo compra desde la mitad inferior (descuento)"],
+    ["Recorrido mínimo", "Si la distancia hasta el extremo opuesto no paga al menos 1,5 veces el riesgo, no opera"],
+    ["Confirmación", "Exige vela de rechazo en gráfico de 15 minutos"],
+    ["Respeto a la tendencia", "No opera la purga en contra de la tendencia de 1 hora"],
+    ["Stop loss", "Al otro lado de la purga, más un colchón de 0,25 × ATR"],
+], [4.4 * cm, 12.0 * cm]))
+
+story.append(Spacer(1, 8))
+story.append(P(
+    "<b>Dos modos de operación:</b> en vivo (entra apenas ocurre la purga, entrada temprana) o confirmado "
+    "(espera a que la vela que purgó haya cerrado dentro del rango — más seguro, entrada más tardía).", "p"))
+
+story.append(PageBreak())
+
+# ══════════════ SMC ══════════════
+story.append(P("Motor 2 — Smart Money Concepts (solo en oro)", "h1"))
+story.append(P(
+    "Modelo de entrada institucional. La premisa: los grandes operadores no entran en cualquier precio — "
+    "dejan huellas identificables en el gráfico cuando mueven volumen, y esas huellas marcan zonas donde "
+    "es probable que vuelvan a actuar.", "p"))
+story.append(tabla([
+    ["Paso", "Qué busca el bot"],
+    ["1. Estructura", "Recorre el gráfico marcando máximos y mínimos relevantes (swings fractales). Cuando el precio cierra más allá del último swing, hay un quiebre: si va en contra del anterior es un <b>cambio de carácter</b> (CHoCH), si lo acompaña es una <b>continuación</b> (BOS)"],
+    ["2. Desplazamiento", "Solo cuenta el quiebre si la vela que lo produjo tiene un rango mayor al promedio — movimiento con intención real, no un goteo lateral"],
+    ["3. Zona de interés", "Dentro del tramo del impulso busca el <b>Order Block</b> (la última vela contraria antes del movimiento) y el <b>FVG</b> o desequilibrio (hueco entre 3 velas). Si ambos se solapan, refina la zona a la intersección"],
+    ["4. Filtros", "La estructura de 1 hora debe acompañar · la zona no debe haber sido ya visitada · el precio debe estar en descuento para comprar o en premium para vender"],
+    ["5. Entrada", "Cuando una vela de 15 minutos toca la zona y cierra a favor. El stop va del otro lado de la zona más un colchón de ATR"],
+], [3.0 * cm, 13.4 * cm]))
+
+story.append(Spacer(1, 8))
+story.append(aviso(
+    "Ambos motores nuevos (CRT y Smart Money) tienen <b>parámetros ajustables de selectividad</b>: se "
+    "puede exigir barrido de liquidez previo, vela de rechazo, confluencia con el medidor de TradingView "
+    "en uno o ambos marcos temporales, y descartar setups cuyo stop resulte demasiado amplio. Cuanto más "
+    "estrictos los filtros, menos operaciones pero de mayor calidad."))
 
 story.append(PageBreak())
 
 # ══════════════ ESTRATEGIA 1 ══════════════
-story.append(P("Estrategia 1 — Pullback a favor de la tendencia", "h1"))
+story.append(P("Motor 3 — Pullback a favor de la tendencia", "h1"))
 story.append(P(
-    "Es el motor principal y el único validado con datos históricos completos. La lógica: cuando un "
-    "mercado tiene tendencia clara, el precio no sube en línea recta — avanza y retrocede. Comprar en "
-    "plena subida es comprar caro; la ventaja está en esperar el retroceso y entrar cuando el impulso "
-    "original se reanuda.", "p"))
+    "<font color='#8A6100'><b>Estado: disponible pero apagado en la configuración vigente.</b></font> "
+    "Fue el motor principal de la versión 1 y es el único validado con datos históricos completos "
+    "(+22,7% en tres años y medio). Se puede reactivar en cualquier momento asignándole instrumentos.", "p"))
+story.append(P(
+    "La lógica: cuando un mercado tiene tendencia clara, el precio no sube en línea recta — avanza y "
+    "retrocede. Comprar en plena subida es comprar caro; la ventaja está en esperar el retroceso y entrar "
+    "cuando el impulso original se reanuda.", "p"))
 
 story.append(P("Condiciones para una compra (la venta es simétrica)", "h2"))
 story.append(tabla([
@@ -174,8 +245,9 @@ story.append(P(
 story.append(Spacer(1, 10))
 
 # ══════════════ ESTRATEGIA 2 ══════════════
-story.append(P("Estrategia 2 — Ruptura del rango asiático", "h1"))
+story.append(P("Motor 4 — Ruptura del rango asiático", "h1"))
 story.append(P(
+    "<font color='#8A6100'><b>Estado: disponible pero apagado en la configuración vigente.</b></font> "
     "Durante la madrugada (sesión asiática) el oro suele moverse poco y comprimido. Cuando abre Londres "
     "entra volumen de golpe y el precio rompe ese rango estrecho. Esta estrategia marca los límites del "
     "rango nocturno y opera el quiebre confirmado.", "p"))
@@ -215,8 +287,9 @@ story.append(aviso(
 story.append(Spacer(1, 14))
 
 # ══════════════ ESTRATEGIA 3 ══════════════
-story.append(P("Estrategia 3 — Scalping de momentum (en revisión)", "h1"))
+story.append(P("Motor 5 — Scalping de momentum (retirado)", "h1"))
 story.append(P(
+    "<font color='#9E2B25'><b>Estado: apagado tras la prueba histórica.</b></font> "
     "Motor de operaciones rápidas en gráfico de 1 minuto sobre el oro, construido replicando el estilo de "
     "operación manual del usuario: entradas a favor de un impulso fuerte, con salida en minutos.", "p"))
 story.append(tabla([
@@ -238,7 +311,7 @@ story.append(aviso(
     "82%. El resultado se repitió casi idéntico en dos configuraciones horarias distintas, lo que descarta "
     "que se trate de casualidad. El resultado positivo observado en los primeros días de operación en vivo "
     "(+11%) corresponde a una muestra demasiado corta para ser concluyente. "
-    "<b>El motor sigue activo por decisión del usuario, informado de este resultado.</b>", ROJO))
+    "<b>En la versión 2 el motor quedó desactivado</b> y su lugar lo ocupan Candle Range Theory y Smart Money Concepts.", ROJO))
 
 story.append(Spacer(1, 12))
 
@@ -254,7 +327,7 @@ story.append(tabla([
     ["Al llegar a +1 R (lote grande)", "Se cierra la mitad de la posición para asegurar ganancia; el resto queda corriendo"],
     ["Mientras avanza", "Trailing stop que sigue al precio a 2 × ATR de distancia — deja correr las ganancias sin devolver todo en un retroceso"],
     ["Objetivo fijo", "2 R cuando el lote es indivisible (cuentas chicas donde no se puede cerrar la mitad)"],
-    ["Viernes", "Sin entradas nuevas desde las 18:00 y cierre total de posiciones a las 21:00 — evita el riesgo del fin de semana"],
+    ["Viernes", "Sin entradas nuevas en las últimas 2 horas de sesión y cierre total 1 hora antes del fin — evita el riesgo del fin de semana"],
 ], [4.6 * cm, 11.8 * cm]))
 
 story.append(PageBreak())
@@ -267,12 +340,12 @@ story.append(P(
 story.append(tabla([
     ["Freno", "Valor actual", "Qué evita"],
     ["Stop loss obligatorio", "En cada orden, sin excepción", "Que una operación quede expuesta sin límite"],
-    ["Riesgo por operación", "1,5% del capital (1% en scalping)", "Que un solo trade pueda hacer daño relevante"],
+    ["Riesgo por operación", "1,5% del capital", "Que un solo trade pueda hacer daño relevante"],
     ["Cálculo de lote blindado", "Triple verificación, se usa la más conservadora", "Que un dato erróneo del broker infle el tamaño de la posición"],
     ["Riesgo total simultáneo", "Máximo 3% del capital", "Que varias posiciones juntas superen el límite"],
     ["Límite de pérdida diaria", "5% — el bot deja de operar hasta el día siguiente", "Que un mal día se convierta en catástrofe"],
     ["Anti-sobreoperación", "4 operaciones por día e instrumento · 2 posiciones simultáneas", "Que el bot opere de más en mercados difíciles"],
-    ["Freno de emergencia", "Caída del 50% desde el máximo: cierra todo y se apaga", "La pérdida total de la cuenta. Solo se reactiva manualmente"],
+    ["Freno de emergencia", "Caída del 30% desde el máximo: cierra todo y se apaga", "La pérdida total de la cuenta. Solo se reactiva manualmente"],
     ["Protección de cuenta chica", "Si el lote mínimo supera el riesgo permitido, no opera", "Forzar operaciones desproporcionadas al capital"],
 ], [4.0 * cm, 5.0 * cm, 7.4 * cm]))
 
@@ -280,7 +353,7 @@ story.append(Spacer(1, 10))
 story.append(P("Cuándo el bot NO opera", "h1"))
 story.append(tabla([
     ["Filtro", "Regla"],
-    ["Horario", "Solo entre las 08:00 y las 20:00 hora del servidor (sesiones de Londres y Nueva York), de lunes a viernes"],
+    ["Horario", "Cada instrumento solo en su sesión: el oro en Londres (08:00–17:00 hora de Londres), el euro en Nueva York (08:00–13:00 hora de Nueva York), de lunes a viernes"],
     ["Noticias de alto impacto", "Se detiene 30 minutos antes y después de eventos como inflación, empleo, decisiones de tasas y PIB, usando el calendario económico de MetaTrader"],
     ["Spread alto", "No opera si el costo de entrada supera el límite configurado por instrumento"],
     ["Mercado lateral", "Si no hay tendencia ni compresión, ninguna estrategia se activa"],
@@ -293,21 +366,29 @@ story.append(P(
     "Todas las pruebas se corrieron sobre datos reales de precio entre enero de 2023 y julio de 2026, "
     "partiendo de 500 USD, con las mismas reglas de gestión y riesgo.", "p"))
 story.append(tabla([
-    ["Configuración", "Resultado final", "Operaciones", "Caída máxima"],
-    ["<b>Tendencia + Ruptura</b>, horario 08–20<br/><font size=7.5 color='#1D7A4C'>Configuración validada y vigente</font>",
+    ["Configuración probada", "Resultado final", "Operaciones", "Caída máxima"],
+    ["<b>Pullback + Ruptura</b>, sesión Londres/NY<br/><font size=7.5 color=\'#1D7A4C\'>Motor validado de la v1</font>",
      "<b>613,47 USD</b><br/><font size=7.5>+22,7%</font>", "917", "23,9%"],
-    ["Tendencia + Ruptura, horario ampliado 01–23<br/><font size=7.5 color='#9E2B25'>Descartada tras la prueba</font>",
+    ["Pullback + Ruptura, horario ampliado 24h<br/><font size=7.5 color=\'#9E2B25\'>Descartado tras la prueba</font>",
      "296,41 USD<br/><font size=7.5>−40,7%</font>", "1.321", "47,1%"],
-    ["Con scalping activo, horario 08–20<br/><font size=7.5 color='#9E2B25'>En revisión</font>",
+    ["Con scalping activo, sesión Londres/NY<br/><font size=7.5 color=\'#9E2B25\'>Motor retirado</font>",
      "18,04 USD<br/><font size=7.5>−96,4%</font>", "1.042", "81,9%"],
-    ["Con scalping activo, horario 01–23<br/><font size=7.5 color='#9E2B25'>En revisión</font>",
+    ["Con scalping activo, horario ampliado 24h<br/><font size=7.5 color=\'#9E2B25\'>Motor retirado</font>",
      "18,41 USD<br/><font size=7.5>−96,3%</font>", "1.120", "81,9%"],
 ], [7.2 * cm, 3.4 * cm, 2.6 * cm, 3.2 * cm]))
 
 story.append(Spacer(1, 8))
 story.append(aviso(
-    "<b>Expectativa realista.</b> El núcleo validado rinde aproximadamente <b>6% anual</b> en la prueba "
-    "histórica, con rachas negativas de hasta 24%. No existe ningún sistema de trading que genere "
+    "<b>Los motores nuevos (CRT y Smart Money) todavía no tienen resultados históricos publicados en este "
+    "documento.</b> El repositorio incluye el script de pruebas comparativas para medirlos —enfrentando "
+    "cada instrumento con cada motor por separado— pero esas corridas están pendientes. Hasta tenerlas, "
+    "su rendimiento a largo plazo es desconocido: el único motor con validación histórica completa sigue "
+    "siendo el pullback de tendencia de la versión 1.", AMBAR))
+
+story.append(Spacer(1, 8))
+story.append(aviso(
+    "<b>Expectativa realista.</b> El único motor validado rinde aproximadamente <b>6% anual</b> en la "
+    "prueba histórica, con rachas negativas de hasta 24%. No existe ningún sistema de trading que genere "
     "rentabilidades altas de forma constante y sin riesgo: los resultados pasados no garantizan resultados "
     "futuros, y toda operación apalancada puede generar pérdidas. El bot opera actualmente en cuenta demo "
     "con dinero ficticio, en fase de validación.", AMBAR))
