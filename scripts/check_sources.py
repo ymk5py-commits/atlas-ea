@@ -156,6 +156,38 @@ def revisar_balance(fuentes):
                 fallos.append(f"{ruta}: {nombre} desbalanceados ({d:+d})")
     return fallos
 
+def revisar_scripts_despliegue(fuentes):
+    """Todo Inp*=... escrito por los scripts de despliegue/backtest debe ser
+    un input real del EA. Este es exactamente el bug que tenia entrypoint.sh
+    en v1: escribia inputs renombrados, MT5 los ignoraba en silencio y el
+    bot corria con otra configuracion de la que el dueño creia."""
+    declarados = set()
+    for txt in fuentes.values():
+        declarados |= set(re.findall(r'input\s+[\w.]+\s+(Inp\w+)', txt))
+
+    raiz = RAIZ.parent
+    fallos = []
+    for rel in ("docker/entrypoint.sh", "scripts/server_backtest.sh"):
+        ruta = raiz / rel
+        if not ruta.exists():
+            continue
+        txt = ruta.read_text(encoding="utf-8", errors="replace")
+        # En los printf las lineas van pegadas con \r\n LITERALES (los dos
+        # caracteres): sin esto, \b no ve frontera entre la 'n' y la 'I' y
+        # todos los inputs del bloque quedan invisibles al chequeo.
+        txt = txt.replace("\\r", "\n").replace("\\n", "\n")
+        for m in re.finditer(r'\b(Inp\w+)=', txt):
+            if m.group(1) not in declarados:
+                linea = txt[:m.start()].count("\n") + 1
+                fallos.append(f"{rel}:{linea}: escribe '{m.group(1)}' pero ese input no existe en el EA (MT5 lo ignoraria en silencio)")
+    # una sola vez por input
+    vistos, unicos = set(), []
+    for f in fallos:
+        clave = f.split("'")[1]
+        if clave not in vistos:
+            vistos.add(clave); unicos.append(f)
+    return unicos
+
 def main():
     fuentes = {}
     for ruta in sorted(RAIZ.rglob("*.mq*")):
@@ -172,6 +204,7 @@ def main():
         ("aridad de llamadas a metodos",           revisar_aridad(fuentes, clases, var2clase)),
         ("inputs sin declarar",                    revisar_identificadores(fuentes, "Inp", r'input\s+\w+\s+(Inp\w+)', "input")),
         ("globales sin declarar",                  revisar_identificadores(fuentes, "g_",  r'\b(g_\w+)\s*(?:\[\s*\]|\[\d*\])?\s*[;,=]', "global")),
+        ("scripts de despliegue vs inputs del EA",  revisar_scripts_despliegue(fuentes)),
     ]
 
     total = 0
