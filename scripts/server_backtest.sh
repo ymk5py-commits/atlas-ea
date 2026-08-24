@@ -2,11 +2,12 @@
 #===============================================================================
 # ATLAS EA v2 — Backtest en el servidor (contenedor descartable, NO toca el bot)
 #
-# Corre la matriz A/B de la configuración actual:
-#   1. EURUSD  solo CRT           (la config productiva del par)
-#   2. XAUUSD  CRT + Smart Money  (la config productiva del oro)
-#   3. XAUUSD  solo CRT           (¿qué aporta SMC?)
-#   4. XAUUSD  solo Smart Money   (¿qué aporta CRT?)
+# Corre las preguntas ABIERTAS. Las respondidas quedan documentadas al pie
+# y en el commit 2e0fc4f; no se re-corren.
+#
+#   1. EURUSD  solo Smart Money            (¿el euro tiene ventaja con SMC?)
+#   2. EURUSD  SMC estricto (con barrido)  (si el default no paga, ¿la version
+#      mas selectiva si? En sintetico el barrido filtra ~80% de las senales)
 #
 # Uso (desde el servidor, con la imagen atlas-ea:2.0 ya construida):
 #   docker run --rm --env-file ~/atlas-ea/.env \
@@ -33,11 +34,11 @@ echo "tag,simbolo,crt,smc,balance_final,trades,dd_max_diario" > "$RESULTS"
 NADA="__NINGUNO__"
 
 run_test() {
-  local tag="$1" symbol="$2" crt="$3" smc="$4"
+  local tag="$1" symbol="$2" crt="$3" smc="$4" extra="${5:-}"
   local crt_v="${crt:-$NADA}" smc_v="${smc:-$NADA}"
-  printf '[Common]\r\nLogin=%s\r\nPassword=%s\r\nServer=%s\r\n[Tester]\r\nExpert=Atlas\\Atlas_EA\r\nSymbol=%s\r\nPeriod=M15\r\nModel=1\r\nFromDate=%s\r\nToDate=%s\r\nDeposit=500\r\nCurrency=USD\r\nLeverage=100\r\nShutdownTerminal=1\r\nVisual=0\r\n[TesterInputs]\r\nInpSymbols=%s\r\nInpRiskPct=1.5\r\nInpRR=2.0\r\nInpBeTriggerR=1.0\r\nInpTrailAtrMult=2.0\r\nInpMaxDrawdownPct=100\r\nInpCrtSymbols=%s\r\nInpSmcSymbols=%s\r\nInpTrendSymbols=%s\r\nInpBreakoutSymbols=%s\r\nInpScalpSymbols=%s\r\nInpNewYorkSymbols=EURUSD\r\nInpLondonSymbols=XAUUSD\r\n' \
+  printf '[Common]\r\nLogin=%s\r\nPassword=%s\r\nServer=%s\r\n[Tester]\r\nExpert=Atlas\\Atlas_EA\r\nSymbol=%s\r\nPeriod=M15\r\nModel=1\r\nFromDate=%s\r\nToDate=%s\r\nDeposit=500\r\nCurrency=USD\r\nLeverage=100\r\nShutdownTerminal=1\r\nVisual=0\r\n[TesterInputs]\r\nInpSymbols=%s\r\nInpRiskPct=1.5\r\nInpRR=2.0\r\nInpBeTriggerR=1.0\r\nInpTrailAtrMult=2.0\r\nInpMaxDrawdownPct=100\r\nInpCrtSymbols=%s\r\nInpSmcSymbols=%s\r\nInpTrendSymbols=%s\r\nInpBreakoutSymbols=%s\r\nInpScalpSymbols=%s\r\nInpNewYorkSymbols=EURUSD\r\nInpLondonSymbols=XAUUSD\r\n%s' \
     "$MT_LOGIN" "$MT_PASSWORD" "$MT_SERVER" "$symbol" "$FROM" "$TO" \
-    "$symbol" "$crt_v" "$smc_v" "$NADA" "$NADA" "$NADA" > "$MT5/bt.ini"
+    "$symbol" "$crt_v" "$smc_v" "$NADA" "$NADA" "$NADA" "$extra" > "$MT5/bt.ini"
 
   find "$MT5/Tester" -mindepth 1 -maxdepth 1 -type d -name 'Agent-*' -exec rm -rf {} + 2>/dev/null
   xvfb-run -a $W 'C:\mt5\terminal64.exe' /portable '/config:C:\mt5\bt.ini' >/dev/null 2>&1
@@ -72,11 +73,18 @@ if [ "${CONTROL_TRADES:-0}" != "0" ]; then
 fi
 echo "[bt] control OK (0 trades con todo apagado) — los overrides se aplican, sigo."
 
-#          tag             simbolo  CRT      SMC
-run_test   eur_crt         EURUSD   EURUSD   ""
-run_test   oro_crt_smc     XAUUSD   XAUUSD   XAUUSD
-run_test   oro_solo_crt    XAUUSD   XAUUSD   ""
-run_test   oro_solo_smc    XAUUSD   ""       XAUUSD
+#          tag              simbolo  CRT  SMC     [extra TesterInputs]
+run_test   eur_smc          EURUSD   ""   EURUSD
+run_test   eur_smc_barrido  EURUSD   ""   EURUSD  $'InpSmcRequireSweep=true\r\n'
+
+# Variante disponible para despues (mismo mecanismo, oro mas selectivo):
+# run_test oro_smc_barrido  XAUUSD   ""   XAUUSD  $'InpSmcRequireSweep=true\r\n'
+
+# --- YA RESPONDIDAS (2023-2026, 500 USD; commit 2e0fc4f) — no re-correr ---
+# oro solo SMC     561.02 (+12.2%)  84 trades  DD 8.8%   <- config vigente
+# oro CRT+SMC      522.63 (+4.5%)  297 trades  DD 14.5%
+# oro solo CRT     493.74 (-1.3%)  210 trades  DD 13.7%
+# EURUSD con CRT   297.26 (-40.5%) 207 trades  DD 43.6%
 
 echo "[bt] COMPLETO"
 cat "$RESULTS"
