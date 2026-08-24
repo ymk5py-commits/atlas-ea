@@ -9,8 +9,11 @@ Cada instrumento tiene **su propia sesión y sus propias estrategias**:
 
 | Símbolo | Sesión | Estrategias | Por qué |
 |---|---|---|---|
-| **XAUUSD** (oro) | Londres, **08:00–17:00** hora de Londres | **Smart Money** | Único motor con ventaja medida en backtest 2023-2026: +12,2% con caída máxima 8,8% |
-| **EURUSD** | Nueva York, **08:00–13:00** hora de NY | *(ninguna — no opera)* | CRT perdió 40,5% en backtest; queda sin operar hasta encontrarle una estrategia con ventaja demostrada |
+| **XAUUSD** (oro) | Londres, **08:00–17:00** hora de Londres | **Smart Money** | El mejor instrumento del backtest: +12,2% en solitario, caída máxima 8,8% |
+| **USDJPY** | Nueva York, **08:00–13:00** hora de NY | **Smart Money** | Sumado tras backtest: +6,4% en solitario con caída 9,8%. Juntos rinden **+21,2% con 169 operaciones** (mejor que el oro solo en rentabilidad y en riesgo/beneficio) |
+
+Probados y descartados: **EURUSD** (CRT −40,5%, SMC −7,8%, tendencia −0,4%), **GBPUSD**
+(SMC −13,6%) y **USDCHF** (SMC +5,2% pero con caída 16,5% — mala relación).
 
 > Resultados completos de la comparación de motores: ver `docs/ATLAS_EA_Estrategias.pdf`
 > y el commit `2e0fc4f`. CRT quedó apagado en ambos instrumentos por evidencia.

@@ -26,7 +26,7 @@
 
 //=== Inputs ========================================================
 input group "General"
-input string InpSymbols          = "EURUSD,XAUUSD";  // Simbolos (separados por coma)
+input string InpSymbols          = "XAUUSD,USDJPY";  // Simbolos (separados por coma)
 input bool   InpEnablePush       = true;            // Notificaciones push al celular
 input int    InpDeviationPoints  = 20;              // Slippage maximo (points)
 
@@ -47,12 +47,16 @@ input double InpTrailAtrMult     = 2.0;             // Trailing: multiplicador A
 
 input group "Estrategias — que simbolo opera cual (vacio = ninguno)"
 // Cada lista es un subconjunto de InpSymbols. Un simbolo puede llevar varias.
-// Backtest 2023-2026 (500 USD): SMC solo en oro = 561.02 (+12.2%, DD 8.8%) ·
+// Backtest 2023-2026 (500 USD): oro+USDJPY con SMC = 605.88 (+21.2%, DD 13.2%,
+// 169 trades) — mejor que el oro solo (561.02, +12.2%, DD 8.8%, 84 trades).
+// Otros pares con SMC: USDCHF 526.08 (+5.2%, DD 16.5%) · GBPUSD 432.24 (-13.6%).
+// EURUSD sin estrategia: CRT -40.5%, SMC -7.8%, tendencia -0.4%. Fuera.
+// Backtest previo: SMC solo en oro = 561.02 (+12.2%, DD 8.8%) ·
 // CRT+SMC en oro = 522.63 · CRT solo en oro = 493.74 · CRT en EURUSD = 297.26
 // (-40.5%). CRT resta en ambos instrumentos, asi que queda apagado. El euro
 // no opera hasta encontrarle una estrategia con ventaja demostrada.
 input string InpCrtSymbols       = "";              // Simbolos con Candle Range Theory (apagado: resta en backtest)
-input string InpSmcSymbols       = "XAUUSD";        // Simbolos con Smart Money
+input string InpSmcSymbols       = "XAUUSD,USDJPY"; // Simbolos con Smart Money
 input string InpTrendSymbols     = "";              // Simbolos con tendencia (pullback)
 input string InpBreakoutSymbols  = "";              // Simbolos con ruptura asiatica
 input double InpAdxTrend         = 22.0;            // ADX H1 minimo para tendencia
@@ -92,7 +96,7 @@ input group "Sesiones — que simbolo opera en que ventana"
 // Las horas van en la HORA DE CADA PLAZA; el bot convierte solo, con el
 // horario de verano que corresponda a cada una. Un simbolo que no figure
 // en ninguna lista opera en hora del SERVIDOR con la ventana de respaldo.
-input string InpNewYorkSymbols   = "EURUSD";        // Simbolos que operan en la sesion de NUEVA YORK
+input string InpNewYorkSymbols   = "USDJPY";        // Simbolos que operan en la sesion de NUEVA YORK
 input int    InpNyStart          = 8;               // Nueva York: hora de inicio
 input int    InpNyEnd            = 13;              // Nueva York: hora de fin (13h = fin del solape con Londres)
 input string InpLondonSymbols    = "XAUUSD";        // Simbolos que operan en la sesion de LONDRES
