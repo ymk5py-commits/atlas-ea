@@ -9,15 +9,18 @@ Cada instrumento tiene **su propia sesión y sus propias estrategias**:
 
 | Símbolo | Sesión | Estrategias | Por qué |
 |---|---|---|---|
-| **EURUSD** | Nueva York, **08:00–13:00** hora de NY | CRT | La ventana termina cuando cierra Londres: el EURUSD tiene recorrido mientras las dos plazas se solapan, y después se vuelve chato |
-| **XAUUSD** (oro) | Londres, **08:00–17:00** hora de Londres | CRT + Smart Money | Cubre la mañana de Londres (la franja más volátil del oro) y se extiende hasta el final del solape con Nueva York |
+| **XAUUSD** (oro) | Londres, **08:00–17:00** hora de Londres | **Smart Money** | Único motor con ventaja medida en backtest 2023-2026: +12,2% con caída máxima 8,8% |
+| **EURUSD** | Nueva York, **08:00–13:00** hora de NY | *(ninguna — no opera)* | CRT perdió 40,5% en backtest; queda sin operar hasta encontrarle una estrategia con ventaja demostrada |
+
+> Resultados completos de la comparación de motores: ver `docs/ATLAS_EA_Estrategias.pdf`
+> y el commit `2e0fc4f`. CRT quedó apagado en ambos instrumentos por evidencia.
 
 Se configura con listas de símbolos, no con interruptores globales. Un símbolo puede
 figurar en varias listas de estrategia; para sacarlo de todo, bórralo de `InpSymbols`.
 
 | Estrategia | Input | Default | Cuándo entra |
 |---|---|---|---|
-| **Candle Range Theory** | `InpCrtSymbols` | `EURUSD,XAUUSD` | Una vela de H4 define el rango; la siguiente purga un extremo cazando stops y vuelve adentro; se opera hacia el extremo opuesto, que es el objetivo |
+| **Candle Range Theory** | `InpCrtSymbols` | *(vacío — restaba en backtest)* | Una vela de H4 define el rango; la siguiente purga un extremo cazando stops y vuelve adentro; se opera hacia el extremo opuesto, que es el objetivo |
 | **Smart Money (SMC)** | `InpSmcSymbols` | `XAUUSD` | Quiebre de estructura (BOS/CHoCH) con desplazamiento, y retroceso a un Order Block / FVG sin mitigar |
 | Tendencia | `InpTrendSymbols` | *(vacío)* | Pullback a la EMA20 de M15 a favor de H1/H4, con RSI(9) recuperando 50 |
 | Ruptura asiática | `InpBreakoutSymbols` | *(vacío)* | Cierre M15 fuera del rango 1–8h |
