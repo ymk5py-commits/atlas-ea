@@ -682,7 +682,16 @@ bool EvaluateSymbol(const int idx)
    //--- Solo se exige historia a los modulos ENCENDIDOS: una estrategia
    //--- apagada (p.ej. tendencia, que necesita 200 velas de H1) no debe
    //--- frenar el arranque de las demas.
-   if(!g_tvM15[idx].Ready() || !g_tvH1[idx].Ready() || !g_regime[idx].Ready() ||
+   //--- El rating TV pide 260 velas en M15 *y* en H1 (lleva EMA200). Un símbolo
+   //--- recién agregado tarda en juntar esa historia, y exigirlo cuando NINGUNA
+   //--- estrategia activa lo consulta dejaba al símbolo trabado sin operar
+   //--- nunca (le pasó al oro y a la plata con InpSmcTvFilter=0).
+   bool needTv = (g_useTrend[idx] || g_useBreakout[idx] ||
+                  (g_useSmc[idx] && InpSmcTvFilter > 0) ||
+                  (g_useCrt[idx] && InpCrtTvFilter > 0));
+
+   if((needTv && (!g_tvM15[idx].Ready() || !g_tvH1[idx].Ready())) ||
+      !g_regime[idx].Ready() ||
       (g_useTrend[idx]    && !g_trend[idx].Ready())    ||
       (g_useBreakout[idx] && !g_breakout[idx].Ready()) ||
       (g_useSmc[idx]      && !g_smc[idx].Ready())      ||
