@@ -103,6 +103,21 @@ bool SymbolIsGold(const string symbol)
    return (StringFind(u, "XAU") >= 0 || StringFind(u, "GOLD") >= 0);
   }
 
+//--- ¿El símbolo es un metal que NO es oro? (plata, platino, paladio)
+//--- Cotizan en dólares con 2-3 decimales, como el oro, pero con precios muy
+//--- distintos: la plata ronda 30 USD y el oro 2600. Metidos en la categoría
+//--- forex, el límite en pips daba 0 puntos y NUNCA podían operar.
+bool SymbolIsMetalNoGold(const string symbol)
+  {
+   if(SymbolIsGold(symbol))
+      return false;
+   string u = symbol;
+   StringToUpper(u);
+   return (StringFind(u, "XAG") >= 0 || StringFind(u, "SILVER") >= 0 ||
+           StringFind(u, "XPT") >= 0 || StringFind(u, "XPD") >= 0 ||
+           StringFind(u, "PLATINUM") >= 0 || StringFind(u, "PALLADIUM") >= 0);
+  }
+
 //--- ¿El símbolo es un índice US? Nombres típicos entre brokers:
 //--- US30/US100/US500, USTEC/USTECH, NAS100/NDX, SPX500, DJ30, WS30.
 bool SymbolIsIndex(const string symbol)
@@ -150,6 +165,7 @@ private:
    double            m_maxSpreadGold;      // spread máx oro, en centavos de dólar
    double            m_maxSpreadForex;     // spread máx forex, en pips
    double            m_maxSpreadIndex;     // spread máx índices, en puntos del índice
+   double            m_maxSpreadMetal;     // spread máx plata/platino/paladio, en centavos
    int               m_manualOffsetSec;    // desfase del servidor forzado a mano
    bool              m_offsetIsManual;
 
@@ -157,7 +173,8 @@ public:
    void Init(const ESesion zone, const int startHour, const int endHour,
              const int friEntryCutH, const int friCloseCutH,
              const double maxSpreadGoldCents, const double maxSpreadForexPips,
-             const double maxSpreadIndexPts, const int manualServerOffsetHours = 99)
+             const double maxSpreadIndexPts, const int manualServerOffsetHours = 99,
+             const double maxSpreadMetalCents = 5.0)
      {
       m_zone             = zone;
       m_startHour        = startHour;
@@ -167,6 +184,7 @@ public:
       m_maxSpreadGold    = maxSpreadGoldCents;
       m_maxSpreadForex   = maxSpreadForexPips;
       m_maxSpreadIndex   = maxSpreadIndexPts;
+      m_maxSpreadMetal   = maxSpreadMetalCents;
       m_offsetIsManual   = (manualServerOffsetHours >= -12 && manualServerOffsetHours <= 14);
       m_manualOffsetSec  = (m_offsetIsManual ? manualServerOffsetHours * 3600 : 0);
      }
@@ -251,6 +269,8 @@ public:
      {
       if(SymbolIsGold(symbol))
          return m_maxSpreadGold * 0.01;    // centavos -> dólares
+      if(SymbolIsMetalNoGold(symbol))
+         return m_maxSpreadMetal * 0.01;   // centavos -> dólares
       if(SymbolIsIndex(symbol))
          return m_maxSpreadIndex;          // ya está en puntos del índice
       return m_maxSpreadForex * 0.0001;    // pips -> precio

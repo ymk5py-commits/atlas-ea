@@ -27,7 +27,7 @@
 
 //=== Inputs ========================================================
 input group "General"
-input string InpSymbols          = "XAUUSD,USDJPY";  // Simbolos (separados por coma)
+input string InpSymbols          = "XAUUSD,USDJPY,XAGUSD"; // Simbolos (separados por coma)
 input bool   InpEnablePush       = true;            // Notificaciones push al celular
 input int    InpDeviationPoints  = 20;              // Slippage maximo (points)
 
@@ -48,7 +48,12 @@ input double InpTrailAtrMult     = 2.0;             // Trailing: multiplicador A
 
 input group "Estrategias — que simbolo opera cual (vacio = ninguno)"
 // Cada lista es un subconjunto de InpSymbols. Un simbolo puede llevar varias.
-// Backtest 2023-2026 (500 USD): oro+USDJPY con SMC = 605.88 (+21.2%, DD 13.2%,
+// CARTERA VIGENTE (backtest 2023-2026, 500 USD): oro+USDJPY+PLATA con Smart
+// Money = 725.00 (+45.0%, DD 12.3%, 229 trades). En solitario cada uno:
+// plata 605.89 (+21.2%, DD 4.9%) - el mejor · oro 561.02 (+12.2%, DD 8.8%)
+// · USDJPY 531.84 (+6.4%, DD 9.8%). Descartados: GBPUSD (-13.6%), USDCHF
+// (+5.2% con DD 16.5%), EURUSD (nada le sirvio).
+// Backtest previo: oro+USDJPY con SMC = 605.88 (+21.2%, DD 13.2%,
 // 169 trades) — mejor que el oro solo (561.02, +12.2%, DD 8.8%, 84 trades).
 // Otros pares con SMC: USDCHF 526.08 (+5.2%, DD 16.5%) · GBPUSD 432.24 (-13.6%).
 // EURUSD sin estrategia: CRT -40.5%, SMC -7.8%, tendencia -0.4%. Fuera.
@@ -57,7 +62,7 @@ input group "Estrategias — que simbolo opera cual (vacio = ninguno)"
 // (-40.5%). CRT resta en ambos instrumentos, asi que queda apagado. El euro
 // no opera hasta encontrarle una estrategia con ventaja demostrada.
 input string InpCrtSymbols       = "";              // Simbolos con Candle Range Theory (apagado: resta en backtest)
-input string InpSmcSymbols       = "XAUUSD,USDJPY"; // Simbolos con Smart Money
+input string InpSmcSymbols       = "XAUUSD,USDJPY,XAGUSD"; // Simbolos con Smart Money
 input string InpTrendSymbols     = "";              // Simbolos con tendencia (pullback)
 input string InpBreakoutSymbols  = "";              // Simbolos con ruptura asiatica
 input string InpRevSymbols       = "";              // Simbolos con reversion M1 (metodo manual del dueno)
@@ -101,7 +106,7 @@ input group "Sesiones — que simbolo opera en que ventana"
 input string InpNewYorkSymbols   = "USDJPY";        // Simbolos que operan en la sesion de NUEVA YORK
 input int    InpNyStart          = 8;               // Nueva York: hora de inicio
 input int    InpNyEnd            = 13;              // Nueva York: hora de fin (13h = fin del solape con Londres)
-input string InpLondonSymbols    = "XAUUSD";        // Simbolos que operan en la sesion de LONDRES
+input string InpLondonSymbols    = "XAUUSD,XAGUSD"; // Simbolos que operan en la sesion de LONDRES
 input int    InpLonStart         = 8;               // Londres: hora de inicio
 input int    InpLonEnd           = 17;              // Londres: hora de fin
 input int    InpSrvStart         = 8;               // Respaldo (hora del servidor): inicio
@@ -116,6 +121,7 @@ input int    InpLocalGmtOffset   = -3;              // Tu huso horario (solo par
 // diez veces mas flojo sin avisar. El bot lo convierte a points solo.
 input double InpMaxSpreadGold    = 50.0;            // Spread max en ORO (centavos de dolar; 50 = 0.50 USD)
 input double InpMaxSpreadForex   = 2.0;             // Spread max en PARES (pips)
+input double InpMaxSpreadMetal   = 5.0;             // Spread max en PLATA/PLATINO (centavos)
 input double InpMaxSpreadIndex   = 5.0;             // Spread max en INDICES (puntos del indice)
 input int    InpNewsBlockMin     = 30;              // Bloqueo +/- minutos por noticia
 input string InpNewsCurrencies   = "USD,EUR,GBP";  // Monedas cuyo calendario se vigila
@@ -431,7 +437,7 @@ int OnInit()
       g_session[i].Init(zone, SessionStartFor(zone), SessionEndFor(zone),
                         InpFridayEntryCutH, InpFridayCloseCutH,
                         InpMaxSpreadGold, InpMaxSpreadForex, InpMaxSpreadIndex,
-                        InpServerGmtOffset);
+                        InpServerGmtOffset, InpMaxSpreadMetal);
       g_hAtrM15[i]  = INVALID_HANDLE;
       g_lastM15[i]  = 0;
       g_lastM1[i]   = 0;

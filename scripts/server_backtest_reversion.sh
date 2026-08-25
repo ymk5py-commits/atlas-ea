@@ -23,12 +23,34 @@ echo "parte,tag,simbolo,modelo,periodo,balance_final,trades,dd_max_diario" > "$R
 # $1 tag · $2 simbolo · $3 modelo · $4 desde · $5 hasta · $6 parte · $7.. overrides
 corre() {
   local tag="$1" symbol="$2" model="$3" from="$4" to="$5" parte="$6"; shift 6
+
+  # Cada Inp*Symbols se emite UNA sola vez. Si una clave aparece dos veces en
+  # el .ini, MetaTrader toma la PRIMERA y el override se pierde en silencio.
+  local CRT=$NADA SMC=$NADA TREND=$NADA BRK=$NADA SCALP=$NADA REV=$NADA
   local extra=""
-  for kv in "$@"; do extra+="${kv}"$'\r\n'; done
+  for kv in "$@"; do
+    case "$kv" in
+      InpCrtSymbols=*)      CRT="${kv#*=}" ;;
+      InpSmcSymbols=*)      SMC="${kv#*=}" ;;
+      InpTrendSymbols=*)    TREND="${kv#*=}" ;;
+      InpBreakoutSymbols=*) BRK="${kv#*=}" ;;
+      InpScalpSymbols=*)    SCALP="${kv#*=}" ;;
+      InpRevSymbols=*)      REV="${kv#*=}" ;;
+      *)                    extra+="${kv}"$'\r\n' ;;
+    esac
+  done
 
   printf '[Common]\r\nLogin=%s\r\nPassword=%s\r\nServer=%s\r\n[Tester]\r\nExpert=Atlas\\Atlas_EA\r\nSymbol=%s\r\nPeriod=M15\r\nModel=%s\r\nFromDate=%s\r\nToDate=%s\r\nDeposit=500\r\nCurrency=USD\r\nLeverage=100\r\nShutdownTerminal=1\r\nVisual=0\r\n[TesterInputs]\r\nInpSymbols=%s\r\nInpMaxDrawdownPct=100\r\nInpCrtSymbols=%s\r\nInpSmcSymbols=%s\r\nInpTrendSymbols=%s\r\nInpBreakoutSymbols=%s\r\nInpScalpSymbols=%s\r\nInpRevSymbols=%s\r\n%s' \
     "$MT_LOGIN" "$MT_PASSWORD" "$MT_SERVER" "$symbol" "$model" "$from" "$to" \
-    "$symbol" "$NADA" "$NADA" "$NADA" "$NADA" "$NADA" "$NADA" "$extra" > "$MT5/bt.ini"
+    "$symbol" "$CRT" "$SMC" "$TREND" "$BRK" "$SCALP" "$REV" "$extra" > "$MT5/bt.ini"
+
+  # Red de seguridad: ninguna clave puede aparecer dos veces
+  local dup=$(sed -n '/\[TesterInputs\]/,$p' "$MT5/bt.ini" | tr -d '\r' | grep -oE '^Inp[A-Za-z]+' | sort | uniq -d)
+  if [ -n "$dup" ]; then
+    echo "[bt] ABORTADO: claves duplicadas en el .ini -> $dup"
+    echo "[bt] MetaTrader tomaria la primera y el resultado no valdria nada."
+    exit 1
+  fi
 
   find "$MT5/Tester" -mindepth 1 -maxdepth 1 -type d -name 'Agent-*' -exec rm -rf {} + 2>/dev/null
   xvfb-run -a wine 'C:\mt5\terminal64.exe' /portable '/config:C:\mt5\bt.ini' >/dev/null 2>&1
@@ -75,7 +97,7 @@ corre rev_5min      XAUUSD 4 2026.01.01 2026.07.31 A \
 echo
 echo "════ PARTE B — Plata con Smart Money (2023-2026) ════"
 corre smc_XAGUSD XAGUSD 1 2023.01.01 2026.07.31 B \
-  InpSmcSymbols=XAGUSD InpLondonSymbols=XAGUSD InpNewYorkSymbols=""
+  InpSmcSymbols=XAGUSD InpLondonSymbols=XAGUSD
 
 echo
 echo "[bt] COMPLETO"
