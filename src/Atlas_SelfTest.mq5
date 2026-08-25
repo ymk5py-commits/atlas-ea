@@ -337,8 +337,13 @@ void TestSpread()
    //--- points segun con cuantos decimales cotice el broker.
    Assert(SpreadLimitPoints(0.50, 0.01)     == 50,  "spread: 0.50 USD de oro = 50 points con 2 decimales");
    Assert(SpreadLimitPoints(0.50, 0.001)    == 500, "spread: 0.50 USD de oro = 500 points con 3 decimales");
-   Assert(SpreadLimitPoints(0.0002, 0.00001) == 20, "spread: 2 pips = 20 points con 5 decimales");
-   Assert(SpreadLimitPoints(0.0002, 0.0001)  == 2,  "spread: 2 pips = 2 points con 4 decimales");
+   //--- Forex por DIGITOS (el pip de los pares JPY es 0.01, no 0.0001)
+   Assert(ForexSpreadLimitPoints(2.0, 5) == 20, "spread: 2 pips = 20 points (EURUSD 5 digitos)");
+   Assert(ForexSpreadLimitPoints(2.0, 4) == 2,  "spread: 2 pips = 2 points (broker de 4 digitos)");
+   Assert(ForexSpreadLimitPoints(2.0, 3) == 20, "spread: 2 pips = 20 points (USDJPY 3 digitos) — antes daba 0 y bloqueaba");
+   Assert(ForexSpreadLimitPoints(2.0, 2) == 2,  "spread: 2 pips = 2 points (JPY de 2 digitos)");
+   Assert(ForexSpreadLimitPoints(2.0, 0) == 0,  "spread: sin digitos -> 0 (no operar)");
+   Assert(ForexSpreadLimitPoints(0.0, 5) == 0,  "spread: limite nulo -> 0 (no operar)");
    Assert(SpreadLimitPoints(5.0, 0.1)        == 50, "spread: 5 puntos de indice = 50 points con 1 decimal");
    Assert(SpreadLimitPoints(5.0, 0.01)       == 500,"spread: 5 puntos de indice = 500 points con 2 decimales");
 
@@ -349,7 +354,6 @@ void TestSpread()
    CSessionFilter sf;
    sf.Init(SESION_SERVIDOR, 8, 20, 2, 1, 50, 2, 5);
    Assert(MathAbs(sf.MaxSpreadPriceFor("XAUUSD") - 0.50)   < 1e-9, "spread: 50 centavos de oro = 0.50 USD");
-   Assert(MathAbs(sf.MaxSpreadPriceFor("EURUSD") - 0.0002) < 1e-9, "spread: 2 pips = 0.0002 de precio");
    Assert(MathAbs(sf.MaxSpreadPriceFor("US30")   - 5.0)    < 1e-9, "spread: 5 puntos de indice = 5.0");
   }
 

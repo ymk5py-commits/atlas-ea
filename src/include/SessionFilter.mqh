@@ -133,6 +133,19 @@ bool SymbolIsIndex(const string symbol)
            StringFind(u, "WS30") >= 0);
   }
 
+//--- Puntos por pip segun los DIGITOS de la cotizacion. Los brokers de 5 y
+//--- 3 digitos cotizan en decimas de pip (1 pip = 10 points); los de 4 y 2,
+//--- en pips enteros. Esto cubre a los pares JPY: su pip es 0.01 (no 0.0001),
+//--- asi que convertir pips multiplicando por 0.0001 les dejaba un limite de
+//--- 0 points y el gate de spread los bloqueaba PARA SIEMPRE, en silencio.
+long ForexSpreadLimitPoints(const double maxSpreadPips, const int digits)
+  {
+   if(maxSpreadPips <= 0.0 || digits <= 0)
+      return 0;
+   double pointsPerPip = (digits == 5 || digits == 3 ? 10.0 : 1.0);
+   return (long)MathRound(maxSpreadPips * pointsPerPip);
+  }
+
 //--- Pasa un limite de spread expresado en PRECIO a los "points" de un
 //--- broker con ese tamano de point. Devuelve 0 si el point no se conoce
 //--- todavia, y con 0 el gate de spread no deja operar.
@@ -273,12 +286,19 @@ public:
          return m_maxSpreadMetal * 0.01;   // centavos -> dólares
       if(SymbolIsIndex(symbol))
          return m_maxSpreadIndex;          // ya está en puntos del índice
-      return m_maxSpreadForex * 0.0001;    // pips -> precio
+      //--- Forex: solo informativo. El gate real usa ForexSpreadLimitPoints
+      //--- (por digitos), porque el pip de los pares JPY es 0.01.
+      return m_maxSpreadForex * 0.0001;
      }
 
-   //--- El mismo límite convertido a los points de ESTE broker
+   //--- El mismo límite convertido a los points de ESTE broker.
+   //--- El forex NO pasa por precio: el pip depende de la moneda cotizada
+   //--- (JPY = 0.01) y la conversion por digitos lo resuelve para todos.
    long MaxSpreadFor(const string symbol) const
      {
+      if(!SymbolIsGold(symbol) && !SymbolIsMetalNoGold(symbol) && !SymbolIsIndex(symbol))
+         return ForexSpreadLimitPoints(m_maxSpreadForex,
+                                       (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS));
       return SpreadLimitPoints(MaxSpreadPriceFor(symbol),
                                SymbolInfoDouble(symbol, SYMBOL_POINT));
      }
