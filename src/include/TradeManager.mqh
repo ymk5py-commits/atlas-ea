@@ -213,8 +213,14 @@ public:
          return false;
         }
 
-      double tp = NormPrice(symbol, sig.dir == SIGNAL_BUY ? entry + rrScalp * slDist
-                                                          : entry - rrScalp * slDist);
+      //--- Si la estrategia fijó su propio objetivo (reversión: el % del tramo
+      //--- que se espera recuperar), se respeta. Si no, se usa el R fijo.
+      double tp;
+      if(sig.tp_price > 0.0)
+         tp = NormPrice(symbol, sig.tp_price);
+      else
+         tp = NormPrice(symbol, sig.dir == SIGNAL_BUY ? entry + rrScalp * slDist
+                                                      : entry - rrScalp * slDist);
 
       m_trade.SetTypeFillingBySymbol(symbol);
       bool ok = false;

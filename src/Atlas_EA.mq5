@@ -19,6 +19,7 @@
 #include "include/TrendStrategy.mqh"
 #include "include/BreakoutStrategy.mqh"
 #include "include/ScalpStrategy.mqh"
+#include "include/RevStrategy.mqh"
 #include "include/SmcStrategy.mqh"
 #include "include/CrtStrategy.mqh"
 #include "include/NewsFilter.mqh"
@@ -59,6 +60,7 @@ input string InpCrtSymbols       = "";              // Simbolos con Candle Range
 input string InpSmcSymbols       = "XAUUSD,USDJPY"; // Simbolos con Smart Money
 input string InpTrendSymbols     = "";              // Simbolos con tendencia (pullback)
 input string InpBreakoutSymbols  = "";              // Simbolos con ruptura asiatica
+input string InpRevSymbols       = "";              // Simbolos con reversion M1 (metodo manual del dueno)
 input double InpAdxTrend         = 22.0;            // ADX H1 minimo para tendencia
 input double InpSqueezeRatio     = 0.75;            // Compresion: ancho BB < ratio x prom
 input double InpAtrSlMult        = 1.5;             // Stop loss: multiplicador ATR M15
@@ -126,6 +128,20 @@ input int    InpAsiaStart        = 1;               // Rango asiatico: hora inic
 input int    InpAsiaEnd          = 8;               // Rango asiatico: hora fin
 input int    InpBreakEnd         = 15;              // Fin ventana de ruptura
 
+input group "Reversion M1 (bajada fuerte -> compra / subida fuerte -> venta)"
+input int    InpRevLookback      = 3;      // Velas M1 que forman el tramo
+input double InpRevImpulseAtr    = 2.0;    // Impulso minimo del tramo (x ATR M1)
+input double InpRevRsiLow        = 25.0;   // RSI7 maximo para COMPRAR (sobreventa)
+input double InpRevRsiHigh       = 75.0;   // RSI7 minimo para VENDER (sobrecompra)
+input double InpRevTargetPct     = 50.0;   // % del tramo que se busca recuperar
+input double InpRevSlAtr         = 1.0;    // Colchon del stop tras el extremo (x ATR M1)
+input double InpRevMaxSlAtr      = 4.0;    // Descartar si el stop supera (x ATR M1)
+input double InpRevRiskPct       = 1.0;    // Riesgo por operacion de reversion (%)
+input int    InpRevMaxPerDay     = 15;     // Max operaciones/dia por simbolo
+input int    InpRevHoldMin       = 8;      // Cierre por tiempo (minutos) — el metodo usa 5-10
+input int    InpRevCooldownMin   = 3;      // Espera minima entre operaciones (min)
+input double InpRevBeR           = 0.5;    // Break-even al llegar a +R
+
 input group "Scalping (estilo manual, hora del SERVIDOR)"
 input string InpScalpSymbols     = "";              // Simbolos con scalping M1 (vacio = ninguno)
 input double InpScalpRiskPct     = 1.0;             // Riesgo por scalp (% equity)
@@ -154,7 +170,8 @@ CTVRating         *g_tvH1[];
 CRegimeDetector   *g_regime[];
 CTrendStrategy    *g_trend[];
 CBreakoutStrategy *g_breakout[];
-CScalpStrategy    *g_scalp[];       // NULL si el símbolo no scalpea
+CScalpStrategy    *g_scalp[];
+CRevStrategy      *g_rev[];        // NULL si el simbolo no opera reversion
 CSmcStrategy      *g_smc[];
 CCrtStrategy      *g_crt[];
 
@@ -168,6 +185,8 @@ int                g_hAtrM15[];
 datetime           g_lastM15[];
 datetime           g_lastM1[];      // tracker de vela M1 (scalping)
 datetime           g_lastScalpOpen[];
+datetime           g_lastRevOpen[];
+datetime           g_lastRevBlockLog[];
 datetime           g_lastRetryLog[];  // throttle de logs transitorios
 datetime           g_lastScalpBlockLog[];
 string             g_cacheRegime[];
@@ -297,6 +316,19 @@ bool TryInitSymbol(const int i)
         }
      }
 
+   //--- Estrategia de reversion M1 (solo símbolos habilitados)
+   if(SymbolInList(s, InpRevSymbols) && CheckPointer(g_rev[i]) != POINTER_DYNAMIC)
+     {
+      g_rev[i] = new CRevStrategy();
+      if(!g_rev[i].Init(s, InpRevLookback, InpRevImpulseAtr, InpRevRsiLow,
+                        InpRevRsiHigh, InpRevTargetPct, InpRevSlAtr, InpRevMaxSlAtr))
+        {
+         delete g_rev[i];
+         g_rev[i] = NULL;
+         return false;
+        }
+     }
+
    g_symReady[i] = true;
 
    //--- Spread real contra el limite configurado. Los brokers cotizan el oro
@@ -355,6 +387,9 @@ int OnInit()
    ArrayResize(g_trend, n);
    ArrayResize(g_breakout, n);
    ArrayResize(g_scalp, n);
+   ArrayResize(g_rev, n);
+   ArrayResize(g_lastRevOpen, n);
+   ArrayResize(g_lastRevBlockLog, n);
    ArrayResize(g_smc, n);
    ArrayResize(g_crt, n);
    ArrayResize(g_session, n);
@@ -401,6 +436,8 @@ int OnInit()
       g_lastM15[i]  = 0;
       g_lastM1[i]   = 0;
       g_lastScalpOpen[i] = 0;
+      g_lastRevOpen[i]   = 0;
+      g_lastRevBlockLog[i] = 0;
       g_lastRetryLog[i]  = 0;
       g_lastScalpBlockLog[i] = 0;
       g_symReady[i] = false;
@@ -470,6 +507,7 @@ void OnDeinit(const int reason)
       if(CheckPointer(g_trend[i])    == POINTER_DYNAMIC) { g_trend[i].Release();    delete g_trend[i]; }
       if(CheckPointer(g_breakout[i]) == POINTER_DYNAMIC) { g_breakout[i].Release(); delete g_breakout[i]; }
       if(CheckPointer(g_scalp[i])    == POINTER_DYNAMIC) { g_scalp[i].Release();    delete g_scalp[i]; }
+      if(CheckPointer(g_rev[i])      == POINTER_DYNAMIC) { g_rev[i].Release();      delete g_rev[i]; }
       if(CheckPointer(g_smc[i])      == POINTER_DYNAMIC) { g_smc[i].Release();      delete g_smc[i]; }
       if(CheckPointer(g_crt[i])      == POINTER_DYNAMIC) { g_crt[i].Release();      delete g_crt[i]; }
       if(CheckPointer(g_session[i])  == POINTER_DYNAMIC) delete g_session[i];
@@ -544,6 +582,8 @@ void RunCycle()
          g_trade.Manage(g_symbols[i], AtrM15(i));
          if(CheckPointer(g_scalp[i]) == POINTER_DYNAMIC)
             g_trade.ManageScalp(g_symbols[i], InpScalpBeR, InpScalpHoldMin * 60);
+         else if(CheckPointer(g_rev[i]) == POINTER_DYNAMIC)
+            g_trade.ManageScalp(g_symbols[i], InpRevBeR, InpRevHoldMin * 60);
         }
 
    //--- 5) Señales en vela M15 nueva. Si el símbolo todavía no tiene
@@ -568,6 +608,17 @@ void RunCycle()
          if(!NewBar(g_symbols[i], PERIOD_M1, g_lastM1[i]))
             continue;
          EvaluateScalp(i);
+        }
+
+   //--- 5c) Reversion M1: el metodo manual del dueno (fade del impulso)
+   if(!killed && StringLen(InpRevSymbols) > 0)
+      for(int i = 0; i < n; i++)
+        {
+         if(!g_symReady[i] || CheckPointer(g_rev[i]) != POINTER_DYNAMIC)
+            continue;
+         if(!NewBar(g_symbols[i], PERIOD_M1, g_lastM1[i]))
+            continue;
+         EvaluateRev(i);
         }
 
    //--- 6) Dashboard cada 5 s
@@ -804,6 +855,60 @@ void EvaluateScalp(const int idx)
      {
       g_risk.RegisterScalpOpen(symbol);
       g_lastScalpOpen[idx] = TimeCurrent();
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Evalúa una operación de REVERSIÓN en la vela M1 (método manual   |
+//| del dueño: fade del impulso, salida en 5-10 min). Usa la misma   |
+//| gestión que el scalp: break-even rápido + cierre por tiempo.     |
+//+------------------------------------------------------------------+
+void EvaluateRev(const int idx)
+  {
+   string symbol = g_symbols[idx];
+
+   if(!g_rev[idx].Ready())
+      return;
+   if(g_session[idx].MustCloseAll())
+      return;
+   if(!ScalpSessionOK(idx, TimeTradeServer()))
+      return;
+   if(!g_session[idx].SpreadOK(symbol))
+      return;
+   if(g_news.IsBlocked())
+      return;
+
+   if(TimeCurrent() - g_lastRevOpen[idx] < InpRevCooldownMin * 60)
+      return;
+
+   string blockReason = "";
+   if(!g_risk.CanOpenScalp(symbol, InpRevMaxPerDay, InpRevRiskPct, blockReason))
+     {
+      datetime now = TimeCurrent();
+      if(now - g_lastRevBlockLog[idx] >= 60)
+        {
+         g_lastRevBlockLog[idx] = now;
+         g_notifier.Log(symbol + ": reversion bloqueada por riesgo — " + blockReason);
+        }
+      return;
+     }
+
+   SSignal sig = g_rev[idx].Check();
+   if(sig.dir == SIGNAL_NONE)
+      return;
+
+   double entry = (sig.dir == SIGNAL_BUY ? SymbolInfoDouble(symbol, SYMBOL_ASK)
+                                         : SymbolInfoDouble(symbol, SYMBOL_BID));
+   double lots = g_risk.CalcLots(symbol, entry, sig.sl_price, InpRevRiskPct);
+   if(lots <= 0.0)
+      return;
+
+   //--- OpenScalp respeta sig.tp_price (el objetivo de la regresión) y marca
+   //--- la posición para que ManageScalp le aplique el cierre por tiempo.
+   if(g_trade.OpenScalp(symbol, sig, lots, 1.0))
+     {
+      g_risk.RegisterScalpOpen(symbol);
+      g_lastRevOpen[idx] = TimeCurrent();
      }
   }
 
