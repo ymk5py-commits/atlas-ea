@@ -51,14 +51,25 @@ RUN (xvfb-run -a wine 'C:\mt5\terminal64.exe' /portable >/dev/null 2>&1 &) ; \
 # Código del bot
 COPY src/ /mt5/term/MQL5/Experts/Atlas/
 
-# Compilación del EA dentro de la imagen (falla el build si no compila)
-RUN xvfb-run -a wine 'C:\mt5\metaeditor64.exe' \
-        '/compile:C:\mt5\MQL5\Experts\Atlas\Atlas_EA.mq5' \
-        '/log:C:\mt5\compile.log' >/dev/null 2>&1 || true; \
-    sleep 5; \
-    iconv -f UTF-16LE -t UTF-8 /mt5/term/compile.log 2>/dev/null | grep -aE "error|Result:" | head -20 || true; \
-    test -f /mt5/term/MQL5/Experts/Atlas/Atlas_EA.ex5 || \
-      (echo "ERROR: el EA no compilo" && exit 1)
+# Compilación dentro de la imagen (falla el build si algo no compila).
+# Se compila TODA fuente .mq5, no solo el EA: el auto-test y los scripts de
+# diagnostico son parte del procedimiento de validacion, y compilando solo
+# Atlas_EA un SelfTest roto pasaba el gate de update_atlas.sh sin avisar.
+RUN set -e; \
+    FALLOS=""; \
+    for SRC in /mt5/term/MQL5/Experts/Atlas/*.mq5; do \
+      NOMBRE="$(basename "$SRC" .mq5)"; \
+      rm -f /mt5/term/compile.log "/mt5/term/MQL5/Experts/Atlas/${NOMBRE}.ex5"; \
+      xvfb-run -a wine 'C:\mt5\metaeditor64.exe' \
+          "/compile:C:\\mt5\\MQL5\\Experts\\Atlas\\${NOMBRE}.mq5" \
+          '/log:C:\mt5\compile.log' >/dev/null 2>&1 || true; \
+      RES="$(iconv -f UTF-16LE -t UTF-8 /mt5/term/compile.log 2>/dev/null | grep -a 'Result:' | tail -1)"; \
+      echo "  ${NOMBRE}: ${RES:-sin log}"; \
+      iconv -f UTF-16LE -t UTF-8 /mt5/term/compile.log 2>/dev/null | grep -aE ' error ' | head -10 || true; \
+      if [ ! -f "/mt5/term/MQL5/Experts/Atlas/${NOMBRE}.ex5" ]; then FALLOS="${FALLOS} ${NOMBRE}"; fi; \
+    done; \
+    if [ -n "$FALLOS" ]; then echo "ERROR: no compilaron:${FALLOS}"; exit 1; fi; \
+    echo "Todas las fuentes compilaron"
 
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

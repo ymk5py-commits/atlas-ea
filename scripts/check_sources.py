@@ -188,6 +188,112 @@ def revisar_scripts_despliegue(fuentes):
             vistos.add(clave); unicos.append(f)
     return unicos
 
+#--- Inputs que definen QUE opera el bot. Si un script de despliegue les
+#--- escribe un valor literal, ese valor pisa al del EA y las dos fuentes
+#--- pueden divergir sin que nadie se entere.
+INPUTS_CARTERA = (
+    "InpSymbols", "InpCrtSymbols", "InpSmcSymbols", "InpTrendSymbols",
+    "InpBreakoutSymbols", "InpRevSymbols", "InpScalpSymbols",
+    "InpNewYorkSymbols", "InpLondonSymbols",
+)
+
+def defaults_del_ea(raiz):
+    """Valor por defecto de cada input string del EA (sin limpiar strings)."""
+    txt = (raiz / "Atlas_EA.mq5").read_text(encoding="utf-8", errors="replace")
+    out = {}
+    for m in re.finditer(r'input\s+string\s+(Inp\w+)\s*=\s*"([^"]*)"', txt):
+        out[m.group(1)] = m.group(2)
+    return out
+
+def _lista(valor):
+    return [s.strip() for s in valor.split(",") if s.strip()]
+
+def revisar_cartera_ea(raiz):
+    """Todo simbolo de InpSymbols tiene que tener al menos una estrategia y
+    una sesion. Sin estrategia el EA lo loguea como 'NINGUNA (no va a operar)'
+    y sin sesion cae en la ventana de respaldo en hora del servidor: las dos
+    cosas son silenciosas si nadie lee el log de arranque."""
+    d = defaults_del_ea(raiz)
+    if "InpSymbols" not in d:
+        return ["Atlas_EA.mq5: no se encontro el default de InpSymbols"]
+    estrategias = ("InpCrtSymbols", "InpSmcSymbols", "InpTrendSymbols",
+                   "InpBreakoutSymbols", "InpRevSymbols", "InpScalpSymbols")
+    sesiones = ("InpNewYorkSymbols", "InpLondonSymbols")
+    fallos = []
+    for sym in _lista(d["InpSymbols"]):
+        if not any(sym in _lista(d.get(k, "")) for k in estrategias):
+            fallos.append(f"Atlas_EA.mq5: '{sym}' esta en InpSymbols pero en ninguna lista de estrategia (no va a operar)")
+        if not any(sym in _lista(d.get(k, "")) for k in sesiones):
+            fallos.append(f"Atlas_EA.mq5: '{sym}' no figura en ninguna sesion (cae en la ventana de respaldo del servidor)")
+    #--- Y al reves: una lista no puede nombrar un simbolo que no se carga
+    for k in estrategias + sesiones:
+        for sym in _lista(d.get(k, "")):
+            if sym not in _lista(d["InpSymbols"]):
+                fallos.append(f"Atlas_EA.mq5: {k} nombra '{sym}', que no esta en InpSymbols (se ignora)")
+    return fallos
+
+def revisar_cartera_despliegue(raiz):
+    """Los scripts de despliegue no pueden hardcodear la cartera. La fuente de
+    verdad es el default compilado del EA; el .env puede sobreescribirlo, pero
+    un literal dentro del script se desincroniza y gana en silencio. Este es
+    exactamente el bug de agosto 2026: entrypoint.sh escribia
+    InpSymbols=EURUSD,XAUUSD y el servidor nunca cargaba la plata."""
+    fallos = []
+    for rel in ("docker/entrypoint.sh",):
+        ruta = raiz.parent / rel
+        if not ruta.exists():
+            continue
+        txt = ruta.read_text(encoding="utf-8", errors="replace")
+        for m in re.finditer(r"printf\s+'(" + "|".join(INPUTS_CARTERA) + r")=([^%\\']*)\\r", txt):
+            linea = txt[:m.start()].count("\n") + 1
+            fallos.append(f"{rel}:{linea}: hardcodea {m.group(1)}='{m.group(2)}'. Debe salir de una variable de entorno o no escribirse")
+    return fallos
+
+#--- Variable del .env -> input del EA con el que tiene que coincidir
+ENV_A_INPUT = {
+    "ATLAS_SYMBOLS":          "InpSymbols",
+    "ATLAS_SMC_SYMBOLS":      "InpSmcSymbols",
+    "ATLAS_CRT_SYMBOLS":      "InpCrtSymbols",
+    "ATLAS_TREND_SYMBOLS":    "InpTrendSymbols",
+    "ATLAS_BREAKOUT_SYMBOLS": "InpBreakoutSymbols",
+    "ATLAS_REV_SYMBOLS":      "InpRevSymbols",
+    "ATLAS_NY_SYMBOLS":       "InpNewYorkSymbols",
+    "ATLAS_LONDON_SYMBOLS":   "InpLondonSymbols",
+}
+
+def revisar_env_vs_ea(raiz):
+    """Los scripts que escriben el .env fijan la cartera de cada cuenta y esa
+    cartera GANA sobre el default del EA. Si divergen, el bot opera algo
+    distinto de lo que dice el codigo y nadie se entera hasta leer el log.
+    Se compara la rama de nombres ESTANDAR (XAUUSD/XAGUSD)."""
+    d = defaults_del_ea(raiz)
+    fallos = []
+    for rel in ("docker/set_password.sh", "docker/agregar_cuenta.sh"):
+        ruta = raiz.parent / rel
+        if not ruta.exists():
+            continue
+        txt = ruta.read_text(encoding="utf-8", errors="replace")
+        #--- Valores de la rama estandar del selector de nombres del broker
+        sub = {"SY_ORO": "XAUUSD", "SY_PLATA": "XAGUSD"}
+        for m in re.finditer(r"printf\s+'(ATLAS_\w+)=([^']*)\\n'([^\n]*)", txt):
+            var, tpl, args = m.group(1), m.group(2), m.group(3)
+            if var not in ENV_A_INPUT:
+                continue
+            valores = [sub.get(a, a) for a in re.findall(r'"\$(\w+)"', args)]
+            try:
+                valor = tpl % tuple(valores) if "%s" in tpl else tpl
+            except TypeError:
+                continue                      # plantilla que no sabemos rearmar
+            inp = ENV_A_INPUT[var]
+            if inp not in d:
+                continue
+            if set(_lista(valor)) != set(_lista(d[inp])):
+                linea = txt[:m.start()].count("\n") + 1
+                fallos.append(
+                    f"{rel}:{linea}: escribe {var}='{valor}' pero el EA compila "
+                    f"{inp}='{d[inp]}' — el .env gana y el bot opera otra cosa")
+    return fallos
+
 def main():
     fuentes = {}
     for ruta in sorted(RAIZ.rglob("*.mq*")):
@@ -205,6 +311,9 @@ def main():
         ("inputs sin declarar",                    revisar_identificadores(fuentes, "Inp", r'input\s+\w+\s+(Inp\w+)', "input")),
         ("globales sin declarar",                  revisar_identificadores(fuentes, "g_",  r'\b(g_\w+)\s*(?:\[\s*\]|\[\d*\])?\s*[;,=]', "global")),
         ("scripts de despliegue vs inputs del EA",  revisar_scripts_despliegue(fuentes)),
+        ("cartera del EA: estrategia y sesion",     revisar_cartera_ea(RAIZ)),
+        ("despliegue sin cartera hardcodeada",      revisar_cartera_despliegue(RAIZ)),
+        ("cartera del .env vs la del EA",           revisar_env_vs_ea(RAIZ)),
     ]
 
     total = 0

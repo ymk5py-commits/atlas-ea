@@ -1,0 +1,11 @@
+# Compilados de MetaEditor
+*.ex5
+*.ex4
+
+# Logs y basura del terminal / del escritorio que se cuela al hacer `git add .`
+*.log
+settings.dat
+*.dxvk-cache
+
+# Credenciales del despliegue (las escribe docker/set_password.sh)
+.env

@@ -17,8 +17,12 @@
 #include "include/SmcStrategy.mqh"
 #include "include/CrtStrategy.mqh"
 
-input string InpTestSymbolGold = "XAUUSD";  // Simbolo oro del broker
-input string InpTestSymbolEur  = "EURUSD";  // Simbolo EURUSD del broker
+//--- La cartera vigente (ver InpSymbols de Atlas_EA.mq5). Si tu broker usa
+//--- otros nombres (GOLD, SILVER, XAUUSD.a...), corregilos aca: el auto-test
+//--- tiene que probar los MISMOS simbolos que va a operar el bot.
+input string InpTestSymbolGold   = "XAUUSD";  // Simbolo ORO del broker
+input string InpTestSymbolSilver = "XAGUSD";  // Simbolo PLATA del broker
+input string InpTestSymbolJpy    = "USDJPY";  // Simbolo USDJPY del broker
 
 int g_pass = 0;
 int g_fail = 0;
@@ -333,6 +337,18 @@ void TestSpread()
    Assert(SymbolIsIndex("EURUSD")  == false, "spread: EURUSD no es indice");
    Assert(SymbolIsIndex("XAUUSD")  == false, "spread: el oro no cuenta como indice");
 
+   //--- Metales que NO son oro. Es la clasificacion mas nueva y la que
+   //--- arreglo el bug de la plata: metida en la categoria forex, el limite
+   //--- en pips le daba 0 points y XAGUSD no podia operar NUNCA.
+   Assert(SymbolIsMetalNoGold("XAGUSD")   == true,  "spread: XAGUSD es metal no-oro");
+   Assert(SymbolIsMetalNoGold("SILVER")   == true,  "spread: SILVER es metal no-oro");
+   Assert(SymbolIsMetalNoGold("XAGUSD.a") == true,  "spread: el sufijo del broker no rompe la deteccion de plata");
+   Assert(SymbolIsMetalNoGold("XPTUSD")   == true,  "spread: el platino es metal no-oro");
+   Assert(SymbolIsMetalNoGold("XAUUSD")   == false, "spread: el oro NO entra en metal no-oro (tiene su propio limite)");
+   Assert(SymbolIsMetalNoGold("GOLD")     == false, "spread: GOLD tampoco (es oro)");
+   Assert(SymbolIsMetalNoGold("EURUSD")   == false, "spread: EURUSD no es metal");
+   Assert(SymbolIsMetalNoGold("USDJPY")   == false, "spread: USDJPY no es metal");
+
    //--- Lo importante: el MISMO limite real cae en distinta cantidad de
    //--- points segun con cuantos decimales cotice el broker.
    Assert(SpreadLimitPoints(0.50, 0.01)     == 50,  "spread: 0.50 USD de oro = 50 points con 2 decimales");
@@ -352,9 +368,16 @@ void TestSpread()
 
    //--- El limite configurado llega a cada tipo de instrumento
    CSessionFilter sf;
-   sf.Init(SESION_SERVIDOR, 8, 20, 2, 1, 50, 2, 5);
+   sf.Init(SESION_SERVIDOR, 8, 20, 2, 1, 50, 2, 5, 99, 5);
    Assert(MathAbs(sf.MaxSpreadPriceFor("XAUUSD") - 0.50)   < 1e-9, "spread: 50 centavos de oro = 0.50 USD");
    Assert(MathAbs(sf.MaxSpreadPriceFor("US30")   - 5.0)    < 1e-9, "spread: 5 puntos de indice = 5.0");
+   //--- La plata va por su propio limite, NO por el del oro ni por el de forex
+   Assert(MathAbs(sf.MaxSpreadPriceFor("XAGUSD") - 0.05)   < 1e-9, "spread: 5 centavos de plata = 0.05 USD");
+   Assert(sf.MaxSpreadPriceFor("XAGUSD") != sf.MaxSpreadPriceFor("XAUUSD"),
+          "spread: la plata NO hereda el limite del oro");
+   //--- Y el limite de la plata en points depende de los decimales del broker
+   Assert(SpreadLimitPoints(0.05, 0.001) == 50, "spread: 0.05 USD de plata = 50 points con 3 decimales");
+   Assert(SpreadLimitPoints(0.05, 0.01)  == 5,  "spread: 0.05 USD de plata = 5 points con 2 decimales");
   }
 
 //+------------------------------------------------------------------+
@@ -387,17 +410,29 @@ void TestSizing(const string symbol, CRiskManager &risk)
    double vmin = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
    double vmax = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MAX);
 
+   //--- La referencia 'distancia x contrato' sale en la MONEDA COTIZADA. Solo
+   //--- es comparable contra el riesgo en dinero si esa moneda es la de la
+   //--- cuenta: en USDJPY da yenes y compararlos contra dolares daria un
+   //--- fallo falso (~150x). Ahi la referencia no aplica y se dice por que.
+   string quote = SymbolInfoString(symbol, SYMBOL_CURRENCY_PROFIT);
+   string acct  = AccountInfoString(ACCOUNT_CURRENCY);
+   bool   refAplica = (quote == acct);
+
    Assert(lots >= 0.0, "sizing " + symbol + ": lote no negativo");
    Assert(contract > 0.0, "sizing " + symbol + ": contract_size disponible");
    if(lots > 0.0)
      {
-      Assert(lots * lossRef <= riskMoney * 1.02,
-             "sizing " + symbol + ": riesgo REAL (dist x contrato) no excede el % configurado");
+      if(refAplica)
+         Assert(lots * lossRef <= riskMoney * 1.02,
+                "sizing " + symbol + ": riesgo REAL (dist x contrato) no excede el % configurado");
+      else
+         Print("SKIP  sizing ", symbol, ": cotiza en ", quote, " y la cuenta en ", acct,
+               " — la referencia estructural no es comparable (el sizing usa el motor del broker)");
       Assert(lots >= vmin && lots <= vmax,
              "sizing " + symbol + ": lote dentro de los limites del broker");
       Print("INFO  ", symbol, ": equity ", DoubleToString(equity, 2),
-            " riesgo ", DoubleToString(riskMoney, 2), " USD -> ", DoubleToString(lots, 2),
-            " lotes | perdida real al SL: ", DoubleToString(lots * lossRef, 2), " USD");
+            " riesgo ", DoubleToString(riskMoney, 2), " ", acct, " -> ", DoubleToString(lots, 2),
+            " lotes | perdida al SL (ref ", quote, "): ", DoubleToString(lots * lossRef, 2));
      }
    else
       Print("INFO  ", symbol, ": lote minimo excede el riesgo -> skip correcto para cuenta chica");
@@ -422,6 +457,46 @@ void TestSizingSkip(const string symbol)
      }
    double lots = tiny.CalcLots(symbol, ask, ask - 5000.0 * point);
    Assert(lots == 0.0, "sizing " + symbol + ": riesgo insuficiente para lote minimo -> 0 (skip)");
+  }
+
+//+------------------------------------------------------------------+
+//| Gate de spread contra el BROKER REAL. Los bugs de la plata y del  |
+//| USDJPY fueron los dos el mismo: el limite convertido daba 0       |
+//| points y SpreadOK() devolvia false para siempre, sin un solo      |
+//| mensaje. Un limite de 0 points es SIEMPRE un error de             |
+//| clasificacion, nunca una decision.                                |
+//+------------------------------------------------------------------+
+void TestSpreadGateVivo(const string symbol)
+  {
+   if(!SymbolSelect(symbol, true))
+     {
+      Assert(false, "spread vivo: simbolo no disponible: " + symbol);
+      return;
+     }
+   //--- Los mismos defaults que trae Atlas_EA.mq5
+   CSessionFilter sf;
+   sf.Init(SESION_SERVIDOR, 8, 20, 2, 1, 50.0, 2.0, 5.0, 99, 5.0);
+
+   long limite = sf.MaxSpreadFor(symbol);
+   Assert(limite > 0,
+          "spread vivo " + symbol + ": el limite convierte a >0 points (0 = bloqueado para siempre)");
+
+   long spread = SymbolInfoInteger(symbol, SYMBOL_SPREAD);
+   int  digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+   if(spread <= 0)
+     {
+      Print("SKIP  spread vivo ", symbol, ": sin cotizacion (correr con mercado abierto)");
+      return;
+     }
+   Print("INFO  ", symbol, ": spread ", spread, " pts | limite ", limite,
+         " pts | ", digits, " digitos | margen x",
+         DoubleToString((double)limite / (double)spread, 1));
+   //--- No es un fallo que el spread supere al limite (puede ser un momento
+   //--- malo), pero si el limite es mas chico que el spread TIPICO el simbolo
+   //--- no va a operar casi nunca: se avisa fuerte.
+   if(spread > limite)
+      Print("AVISO ", symbol, ": el spread actual (", spread,
+            ") supera el limite (", limite, "). Si pasa siempre, subi el input de spread de este instrumento.");
   }
 
 //+------------------------------------------------------------------+
@@ -560,18 +635,28 @@ void OnStart()
 
    CNotifier notifier;
    notifier.Init(false);
-   string syms[2];
+   string syms[3];
    syms[0] = InpTestSymbolGold;
-   syms[1] = InpTestSymbolEur;
+   syms[1] = InpTestSymbolSilver;
+   syms[2] = InpTestSymbolJpy;
    CRiskManager risk;
    risk.Init(2.0, 5.0, 25.0, 3.0, 4, 2, false, GetPointer(notifier), syms);
 
+   //--- Los tres instrumentos de la cartera, no solo el oro: la plata y el
+   //--- USDJPY tuvieron cada uno un bug propio de clasificacion (limite de
+   //--- spread en 0 points) que solo se ve probando el simbolo real.
    TestSizing(InpTestSymbolGold, risk);
-   TestSizing(InpTestSymbolEur, risk);
+   TestSizing(InpTestSymbolSilver, risk);
+   TestSizing(InpTestSymbolJpy, risk);
    TestSizingSkip(InpTestSymbolGold);
 
+   TestSpreadGateVivo(InpTestSymbolGold);
+   TestSpreadGateVivo(InpTestSymbolSilver);
+   TestSpreadGateVivo(InpTestSymbolJpy);
+
    TestIndicatorWiring(InpTestSymbolGold);
-   TestIndicatorWiring(InpTestSymbolEur);
+   TestIndicatorWiring(InpTestSymbolSilver);
+   TestIndicatorWiring(InpTestSymbolJpy);
 
    Print("================================================");
    if(g_fail == 0)
