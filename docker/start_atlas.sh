@@ -31,18 +31,21 @@ if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
    exit 1
 fi
 
-read -rp "  Número de cuenta (login)     : " MT_LOGIN
-read -rp "  Servidor  [MetaQuotes-Demo]  : " MT_SERVER
-MT_SERVER="${MT_SERVER:-MetaQuotes-Demo}"
-read -rsp "  Contraseña (no se muestra)   : " MT_PASSWORD
-echo
-read -rp "  Símbolos  [EURUSD,XAUUSD]    : " ATLAS_SYMBOLS
-ATLAS_SYMBOLS="${ATLAS_SYMBOLS:-EURUSD,XAUUSD}"
-
-if [ -z "$MT_LOGIN" ] || [ -z "$MT_PASSWORD" ]; then
-   echo "  ✗ Login y contraseña son obligatorios."
+# La cuenta Y la cartera viven en ~/atlas-ea/.env, que escribe set_password.sh.
+# Este script NO vuelve a preguntar los símbolos ni inventa una cartera: antes
+# sí lo hacía, con un default 'EURUSD,XAUUSD' que ya no es la cartera validada,
+# y como tampoco pasaba las listas de estrategia, los símbolos nuevos entraban
+# sin estrategia y sin sesión. Una sola fuente de verdad: el .env, igual que
+# update_atlas.sh.
+ENVFILE="$HOME/atlas-ea/.env"
+if [ ! -f "$ENVFILE" ]; then
+   echo "  ✗ No existe $ENVFILE"
+   echo "    Corré primero:  bash ~/atlas-ea/docker/set_password.sh"
    exit 1
 fi
+
+echo "  Config: $ENVFILE"
+grep -aE '^ATLAS_' "$ENVFILE" | sed 's/^/      /'
 
 echo
 echo "  Deteniendo instancia anterior si existe..."
@@ -54,17 +57,9 @@ docker run -d \
   --restart unless-stopped \
   --memory 3g \
   --cpus 2 \
-  -e MT_LOGIN="$MT_LOGIN" \
-  -e MT_PASSWORD="$MT_PASSWORD" \
-  -e MT_SERVER="$MT_SERVER" \
-  -e ATLAS_SYMBOLS="$ATLAS_SYMBOLS" \
-  -e ATLAS_RISK=1.5 \
-  -e ATLAS_DAILY_LOSS=5.0 \
-  -e ATLAS_MAX_DD=30.0 \
+  --env-file "$ENVFILE" \
   -v atlas-ea-data:/mt5/wine/drive_c/Program\ Files/MetaTrader\ 5/MQL5/Logs \
   "$IMAGE" >/dev/null
-
-unset MT_PASSWORD
 
 sleep 20
 if [ "$(docker inspect -f '{{.State.Running}}' "$NAME" 2>/dev/null)" = "true" ]; then
@@ -83,8 +78,12 @@ cat <<FIN
 ════════════════════════════════════════════════════════════════
   EL BOT ESTÁ CORRIENDO 24/5
 ════════════════════════════════════════════════════════════════
-  Riesgo 1.5%/operación · límite diario 5% · kill switch 30%
+  Riesgo, límite diario y kill switch: los del .env de arriba.
   Se reinicia solo si se cae o si reiniciás el servidor.
+
+  VERIFICÁ AHORA en el log una línea por símbolo con sus estrategias
+  y su sesión. Si alguna dice "NINGUNA (no va a operar)", ese símbolo
+  está en la cartera pero sin estrategia asignada: corregí el .env.
 
   Ver el diario  : docker logs -f atlas-ea
   Ver estado     : docker ps --filter name=atlas-ea

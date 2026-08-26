@@ -48,12 +48,17 @@ umask 077
   printf 'ATLAS_SYMBOLS=%s,USDJPY,%s\n' "$SY_ORO" "$SY_PLATA"
   printf 'ATLAS_RISK=1.5\n'
   printf 'ATLAS_DAILY_LOSS=5.0\n'
-  printf 'ATLAS_MAX_DD=50.0\n'
+  printf '# Kill switch: 30%%, el mismo valor del EA y del README. Antes este\n'
+  printf '# archivo escribia 50%% y quedaba pisando en silencio al documentado.\n'
+  printf 'ATLAS_MAX_DD=30.0\n'
   printf 'ATLAS_CRT_SYMBOLS=\n'
   printf 'ATLAS_SMC_SYMBOLS=%s,USDJPY,%s\n' "$SY_ORO" "$SY_PLATA"
+  printf 'ATLAS_TREND_SYMBOLS=\n'
+  printf 'ATLAS_BREAKOUT_SYMBOLS=\n'
+  printf 'ATLAS_REV_SYMBOLS=\n'
   printf 'ATLAS_NY_SYMBOLS=USDJPY\n'
   printf 'ATLAS_LONDON_SYMBOLS=%s,%s\n' "$SY_ORO" "$SY_PLATA"
-  printf 'ATLAS_LOCAL_GMT_OFFSET=-3\n' 
+  printf 'ATLAS_LOCAL_GMT_OFFSET=-3\n'
 } > "$ENVFILE"
 chmod 600 "$ENVFILE"
 unset MT_PASSWORD

@@ -49,6 +49,18 @@ echo
 read -rp "  Riesgo por operación %  [1.5]   : " RIESGO
 RIESGO="${RIESGO:-1.5}"
 
+echo
+echo "  ¿Cómo llama este broker a los metales? (miralo en Observación del mercado)"
+echo "    1 = estándar: XAUUSD / XAGUSD / USDJPY   (MetaQuotes, la mayoría)"
+echo "    2 = XM:       GOLD / SILVER / USDJPY"
+read -rp "  Opción [1]: " BROKER_NAMES
+BROKER_NAMES="${BROKER_NAMES:-1}"
+if [ "$BROKER_NAMES" = "2" ]; then
+   SY_ORO="GOLD"; SY_PLATA="SILVER"
+else
+   SY_ORO="XAUUSD"; SY_PLATA="XAGUSD"
+fi
+
 if [ -z "$MT_LOGIN" ] || [ -z "$MT_PASSWORD" ] || [ -z "$MT_SERVER" ]; then
    echo "  ✗ Login, servidor y contraseña son obligatorios."
    exit 1
@@ -72,15 +84,20 @@ umask 077
   printf 'MT_LOGIN=%s\n'      "$MT_LOGIN"
   printf 'MT_PASSWORD=%s\n'   "$MT_PASSWORD"
   printf 'MT_SERVER=%s\n'     "$MT_SERVER"
-  printf 'ATLAS_SYMBOLS=XAUUSD,EURUSD\n'
   printf 'ATLAS_RISK=%s\n'    "$RIESGO"
   printf 'ATLAS_DAILY_LOSS=5.0\n'
-  printf 'ATLAS_MAX_DD=50.0\n'
-  printf '# Config validada por backtest 2023-2026: Smart Money solo en oro.\n'
+  printf '# Kill switch: 30%%, el mismo valor del EA y del README.\n'
+  printf 'ATLAS_MAX_DD=30.0\n'
+  printf '# Cartera validada por backtest 2023-2026 (+45%%): oro+plata en Londres,\n'
+  printf '# USDJPY en NY, los tres SOLO con Smart Money. CRT restaba: apagado.\n'
+  printf 'ATLAS_SYMBOLS=%s,USDJPY,%s\n' "$SY_ORO" "$SY_PLATA"
   printf 'ATLAS_CRT_SYMBOLS=\n'
-  printf 'ATLAS_SMC_SYMBOLS=XAUUSD\n'
-  printf 'ATLAS_NY_SYMBOLS=EURUSD\n'
-  printf 'ATLAS_LONDON_SYMBOLS=XAUUSD\n'
+  printf 'ATLAS_SMC_SYMBOLS=%s,USDJPY,%s\n' "$SY_ORO" "$SY_PLATA"
+  printf 'ATLAS_TREND_SYMBOLS=\n'
+  printf 'ATLAS_BREAKOUT_SYMBOLS=\n'
+  printf 'ATLAS_REV_SYMBOLS=\n'
+  printf 'ATLAS_NY_SYMBOLS=USDJPY\n'
+  printf 'ATLAS_LONDON_SYMBOLS=%s,%s\n' "$SY_ORO" "$SY_PLATA"
   printf 'ATLAS_LOCAL_GMT_OFFSET=-3\n'
 } > "$ENVFILE"
 chmod 600 "$ENVFILE"
@@ -110,6 +127,11 @@ echo
 echo "  Esperá 2-3 minutos y verificá la conexión con:"
 echo "    bash ~/atlas-ea/docker/cuentas.sh log $NOMBRE"
 echo
-echo "  Debe aparecer 'authorized' (cuenta conectada) y las líneas"
-echo "  'XAUUSD | SmartMoney' / 'EURUSD | NINGUNA'."
+echo "  Debe aparecer 'authorized' (cuenta conectada) y UNA LINEA POR SIMBOLO:"
+echo "    ${SY_ORO} | SmartMoney | sesion LONDRES ..."
+echo "    ${SY_PLATA} | SmartMoney | sesion LONDRES ..."
+echo "    USDJPY | SmartMoney | sesion NUEVA YORK ..."
+echo
+echo "  ⚠ Si alguna dice 'NINGUNA (no va a operar)', ese simbolo no tiene estrategia:"
+echo "    revisá los nombres en $ENVFILE (se comparan por texto exacto)."
 echo "════════════════════════════════════════════════════════════════"
