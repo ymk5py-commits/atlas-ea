@@ -28,8 +28,20 @@ private:
      }
 
 public:
+   //--- Los miembros de un objeto recien creado valen 0, y 0 NO es
+   //--- INVALID_HANDLE. Sin invalidar, Release() liberaria el handle 0.
+   CTrendStrategy() { Invalidate(); }
+
+   void Invalidate()
+     {
+      m_hEma50H1  = INVALID_HANDLE; m_hEma200H1 = INVALID_HANDLE;
+      m_hEma50H4  = INVALID_HANDLE; m_hEma20M15 = INVALID_HANDLE;
+      m_hRsi9M15  = INVALID_HANDLE; m_hAtrM15   = INVALID_HANDLE;
+     }
+
    bool Init(const string symbol, const double atrSlMult)
      {
+      Release();                 // idempotente: reinicializar no fuga handles
       m_symbol    = symbol;
       m_atrSlMult = atrSlMult;
       m_armedLong  = false;
@@ -53,6 +65,7 @@ public:
       if(m_hEma20M15 != INVALID_HANDLE) IndicatorRelease(m_hEma20M15);
       if(m_hRsi9M15  != INVALID_HANDLE) IndicatorRelease(m_hRsi9M15);
       if(m_hAtrM15   != INVALID_HANDLE) IndicatorRelease(m_hAtrM15);
+      Invalidate();
      }
 
    bool Ready()

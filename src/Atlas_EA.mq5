@@ -190,6 +190,11 @@ int                g_hAtrM15[];
 
 datetime           g_lastM15[];
 datetime           g_lastM1[];      // tracker de vela M1 (scalping)
+//--- Reversion lleva su PROPIO tracker de vela M1. Con uno solo compartido,
+//--- un simbolo que estuviera en InpScalpSymbols y en InpRevSymbols dejaba
+//--- que el bucle del scalping consumiera la vela y la reversion no se
+//--- evaluaba nunca, en silencio.
+datetime           g_lastM1Rev[];
 datetime           g_lastScalpOpen[];
 datetime           g_lastRevOpen[];
 datetime           g_lastRevBlockLog[];
@@ -406,6 +411,7 @@ int OnInit()
    ArrayResize(g_hAtrM15, n);
    ArrayResize(g_lastM15, n);
    ArrayResize(g_lastM1, n);
+   ArrayResize(g_lastM1Rev, n);
    ArrayResize(g_lastScalpOpen, n);
    ArrayResize(g_lastRetryLog, n);
    ArrayResize(g_lastScalpBlockLog, n);
@@ -439,8 +445,9 @@ int OnInit()
                         InpMaxSpreadGold, InpMaxSpreadForex, InpMaxSpreadIndex,
                         InpServerGmtOffset, InpMaxSpreadMetal);
       g_hAtrM15[i]  = INVALID_HANDLE;
-      g_lastM15[i]  = 0;
-      g_lastM1[i]   = 0;
+      g_lastM15[i]   = 0;
+      g_lastM1[i]    = 0;
+      g_lastM1Rev[i] = 0;
       g_lastScalpOpen[i] = 0;
       g_lastRevOpen[i]   = 0;
       g_lastRevBlockLog[i] = 0;
@@ -622,7 +629,7 @@ void RunCycle()
         {
          if(!g_symReady[i] || CheckPointer(g_rev[i]) != POINTER_DYNAMIC)
             continue;
-         if(!NewBar(g_symbols[i], PERIOD_M1, g_lastM1[i]))
+         if(!NewBar(g_symbols[i], PERIOD_M1, g_lastM1Rev[i]))
             continue;
          EvaluateRev(i);
         }

@@ -19,22 +19,24 @@ if [ -d /seed-config ]; then
    mkdir -p "${MT5}/config"
    cp -a /seed-config/. "${MT5}/config/" 2>/dev/null || true
 fi
-: "${ATLAS_SYMBOLS:=EURUSD,XAUUSD}"
+# ─────────────────────────────────────────────────────────────────────────
+# CARTERA Y ESTRATEGIAS: la fuente de verdad es src/Atlas_EA.mq5
+#
+# Este script NO repite los valores de la cartera. Antes sí lo hacía, y en
+# agosto 2026 el resultado fue que el servidor corría EURUSD+XAUUSD con Smart
+# Money solo en el oro mientras el EA ya traía compilada la cartera validada
+# (XAUUSD+USDJPY+XAGUSD): el .set pisaba los defaults del EA en silencio, la
+# plata —el mejor instrumento del backtest— nunca se cargaba, y EURUSD entraba
+# sin ninguna estrategia asignada.
+#
+# Regla nueva: una linea Inp*= se escribe SOLO si su variable de entorno esta
+# DEFINIDA. Si no la definis, la linea no existe y manda el default compilado
+# del EA. Definir la variable vacia (VAR=) es un override valido y explicito
+# que significa "ninguno".
+# ─────────────────────────────────────────────────────────────────────────
 : "${ATLAS_RISK:=1.5}"
 : "${ATLAS_DAILY_LOSS:=5.0}"
 : "${ATLAS_MAX_DD:=30.0}"
-# Estrategias POR SIMBOLO (listas separadas por coma; vacio = ninguna)
-: "${ATLAS_CRT_SYMBOLS:=}"                # apagado: resta en backtest (ver src/Atlas_EA.mq5)
-: "${ATLAS_SMC_SYMBOLS:=XAUUSD}"
-: "${ATLAS_TREND_SYMBOLS:=}"
-: "${ATLAS_BREAKOUT_SYMBOLS:=}"
-# Nombre NUEVO a proposito: un .env viejo con ATLAS_SCALP / ATLAS_SCALP_SYMBOLS
-# no puede reencender el scalping que el dueño apago. Para reactivarlo hay que
-# escribir ATLAS_M1_SCALP_SYMBOLS de forma deliberada.
-: "${ATLAS_M1_SCALP_SYMBOLS:=}"
-# Sesiones por simbolo (hora de cada plaza; el EA convierte solo)
-: "${ATLAS_NY_SYMBOLS:=EURUSD}"
-: "${ATLAS_LONDON_SYMBOLS:=XAUUSD}"
 : "${ATLAS_LOCAL_GMT_OFFSET:=-3}"
 
 if [ -n "${ATLAS_SCALP:-}" ] || [ -n "${ATLAS_SCALP_SYMBOLS:-}" ]; then
@@ -44,10 +46,21 @@ fi
 
 mkdir -p "$PARAMS_DIR"
 
-# Parametros del EA v2: estrategias y sesiones por simbolo.
-# Gestion de posicion validada por backtest (RR 2.0 / BE 1.0R / Trail 2.0 ATR).
+# Escribe la linea 'Inp<Nombre>=valor' solo si la variable de entorno esta DEFINIDA.
+# Usa ${!var+x} (definida, aunque sea vacia) y no ${!var:+x} (definida y no
+# vacia): para las listas de estrategia, vacio es un valor con significado.
+OVERRIDES=""
+emit_if_set() {
+  local input="$1" var="$2"
+  if [ -n "${!var+x}" ]; then
+    printf '%s=%s\r\n' "$input" "${!var}"
+    OVERRIDES="${OVERRIDES}${OVERRIDES:+, }${input}=${!var:-(ninguno)}"
+  fi
+}
+
+# Parametros del EA v2. Gestion de posicion validada por backtest
+# (RR 2.0 / BE 1.0R / Trail 2.0 ATR).
 {
-  printf 'InpSymbols=%s\r\n'          "$ATLAS_SYMBOLS"
   printf 'InpEnablePush=true\r\n'
   printf 'InpRiskPct=%s\r\n'          "$ATLAS_RISK"
   printf 'InpDailyLossPct=%s\r\n'     "$ATLAS_DAILY_LOSS"
@@ -55,15 +68,40 @@ mkdir -p "$PARAMS_DIR"
   printf 'InpRR=2.0\r\n'
   printf 'InpBeTriggerR=1.0\r\n'
   printf 'InpTrailAtrMult=2.0\r\n'
-  printf 'InpCrtSymbols=%s\r\n'       "$ATLAS_CRT_SYMBOLS"
-  printf 'InpSmcSymbols=%s\r\n'       "$ATLAS_SMC_SYMBOLS"
-  printf 'InpTrendSymbols=%s\r\n'     "$ATLAS_TREND_SYMBOLS"
-  printf 'InpBreakoutSymbols=%s\r\n'  "$ATLAS_BREAKOUT_SYMBOLS"
-  printf 'InpScalpSymbols=%s\r\n'     "$ATLAS_M1_SCALP_SYMBOLS"
-  printf 'InpNewYorkSymbols=%s\r\n'   "$ATLAS_NY_SYMBOLS"
-  printf 'InpLondonSymbols=%s\r\n'    "$ATLAS_LONDON_SYMBOLS"
   printf 'InpLocalGmtOffset=%s\r\n'   "$ATLAS_LOCAL_GMT_OFFSET"
+
+  # Cartera, estrategias y sesiones: solo si se piden explicitamente.
+  emit_if_set InpSymbols         ATLAS_SYMBOLS
+  emit_if_set InpCrtSymbols      ATLAS_CRT_SYMBOLS
+  emit_if_set InpSmcSymbols      ATLAS_SMC_SYMBOLS
+  emit_if_set InpTrendSymbols    ATLAS_TREND_SYMBOLS
+  emit_if_set InpBreakoutSymbols ATLAS_BREAKOUT_SYMBOLS
+  emit_if_set InpRevSymbols      ATLAS_REV_SYMBOLS
+  emit_if_set InpScalpSymbols    ATLAS_M1_SCALP_SYMBOLS
+  emit_if_set InpNewYorkSymbols  ATLAS_NY_SYMBOLS
+  emit_if_set InpLondonSymbols   ATLAS_LONDON_SYMBOLS
 } > "${PARAMS_DIR}/atlas_params.set"
+
+# Trampa clasica: pedir simbolos nuevos sin darles estrategia ni sesion.
+# Quedarian en InpSymbols pero en ninguna lista -> el EA los loguea como
+# "NINGUNA (no va a operar)" y ademas caen en la ventana horaria de respaldo.
+if [ -n "${ATLAS_SYMBOLS+x}" ] && [ -z "${ATLAS_SMC_SYMBOLS+x}" ] \
+   && [ -z "${ATLAS_CRT_SYMBOLS+x}" ] && [ -z "${ATLAS_TREND_SYMBOLS+x}" ] \
+   && [ -z "${ATLAS_BREAKOUT_SYMBOLS+x}" ] && [ -z "${ATLAS_REV_SYMBOLS+x}" ]; then
+   echo "[ATLAS] ⚠ ATENCION: pediste ATLAS_SYMBOLS='${ATLAS_SYMBOLS}' pero no definiste"
+   echo "[ATLAS]   ninguna lista de estrategia. Los simbolos que no figuren en la lista"
+   echo "[ATLAS]   compilada del EA no van a operar y no van a tener sesion asignada."
+   echo "[ATLAS]   Revisa la linea por simbolo del log de arranque."
+fi
+
+# Grafico donde se engancha el EA: es solo el contenedor, una sola instancia
+# maneja TODOS los simbolos de InpSymbols. Si el .env no sobreescribe la
+# cartera, se usa XAUUSD, que es el primero de la cartera compilada del EA.
+CHART_SYMBOL="${ATLAS_CHART_SYMBOL:-}"
+if [ -z "$CHART_SYMBOL" ]; then
+  CANDIDATA="${ATLAS_SYMBOLS:-XAUUSD}"
+  CHART_SYMBOL="${CANDIDATA%%,*}"
+fi
 
 {
   printf '[Common]\r\n'
@@ -78,7 +116,7 @@ mkdir -p "$PARAMS_DIR"
   printf 'Profile=0\r\n'
   printf '[StartUp]\r\n'
   printf 'Expert=Atlas\\Atlas_EA\r\n'
-  printf 'Symbol=%s\r\n' "${ATLAS_SYMBOLS%%,*}"
+  printf 'Symbol=%s\r\n' "$CHART_SYMBOL"
   printf 'Period=M15\r\n'
   printf 'ExpertParameters=atlas_params.set\r\n'
 } > "$CFG"
@@ -86,7 +124,12 @@ chmod 600 "$CFG"
 
 echo "[ATLAS] Iniciando MetaTrader 5 headless — cuenta ${MT_LOGIN} en ${MT_SERVER}"
 echo "[ATLAS] Riesgo ${ATLAS_RISK}%/op · limite diario ${ATLAS_DAILY_LOSS}% · kill switch ${ATLAS_MAX_DD}%"
-echo "[ATLAS] CRT: ${ATLAS_CRT_SYMBOLS:-ninguno} · SmartMoney: ${ATLAS_SMC_SYMBOLS:-ninguno} · NY: ${ATLAS_NY_SYMBOLS:-ninguno} · Londres: ${ATLAS_LONDON_SYMBOLS:-ninguno}"
+if [ -n "$OVERRIDES" ]; then
+  echo "[ATLAS] Cartera/estrategias SOBREESCRITAS por el .env: ${OVERRIDES}"
+else
+  echo "[ATLAS] Cartera y estrategias: las compiladas en el EA (sin override en el .env)."
+fi
+echo "[ATLAS] La verdad final la dice el EA: mira las lineas 'SIMBOLO | estrategias | sesion' de abajo."
 
 # Pantalla virtual INDEPENDIENTE del terminal: el auto-update de MT5
 # (liveupdate) mata y relanza terminal64.exe; con xvfb-run el X moría

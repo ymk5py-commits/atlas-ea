@@ -55,10 +55,17 @@ private:
      }
 
 public:
+   //--- Los miembros de un objeto recien creado valen 0, y 0 NO es
+   //--- INVALID_HANDLE. Sin invalidar, Release() liberaria el handle 0.
+   CRevStrategy() { Invalidate(); }
+
+   void Invalidate() { m_hRsi7 = INVALID_HANDLE; m_hAtr = INVALID_HANDLE; }
+
    bool Init(const string symbol, const int lookback, const double impulseAtr,
              const double rsiLow, const double rsiHigh, const double targetPct,
              const double slAtr, const double maxSlAtr)
      {
+      Release();                 // idempotente: reinicializar no fuga handles
       m_symbol     = symbol;
       m_lookback   = MathMax(2, lookback);
       m_impulseAtr = impulseAtr;
@@ -77,6 +84,7 @@ public:
      {
       if(m_hRsi7 != INVALID_HANDLE) IndicatorRelease(m_hRsi7);
       if(m_hAtr  != INVALID_HANDLE) IndicatorRelease(m_hAtr);
+      Invalidate();
      }
 
    bool Ready()
@@ -133,14 +141,33 @@ public:
         {
          double entry = SymbolInfoDouble(m_symbol, SYMBOL_ASK);
          double sl    = ll - m_slAtr * atr;
+         //--- El stop tiene que quedar DEBAJO de la entrada. Si el precio
+         //--- siguio cayendo entre el cierre de la vela y el ASK de ahora,
+         //--- entry puede quedar por debajo de ll: sin esta guarda,
+         //--- (entry - sl) da NEGATIVO, pasa el filtro de ancho y se manda
+         //--- una COMPRA con el SL arriba del precio que el broker rechaza.
+         if(entry <= 0.0 || entry <= sl)
+           {
+            m_note = "bajada fuerte pero el precio ya paso el stop";
+            return sig;
+           }
          if(entry - sl > m_maxSlAtr * atr)
            {
             m_note = "bajada fuerte pero el stop queda muy ancho";
             return sig;
            }
+         //--- El objetivo se ancla en el cierre de la vela, no en la entrada:
+         //--- si el precio ya recorrio solo la regresion que buscabamos, el
+         //--- objetivo queda DEBAJO del ASK y no hay nada que ganar.
+         double tp = c1 + m_targetPct * caida;
+         if(tp <= entry)
+           {
+            m_note = "la regresion ya ocurrio (objetivo detras del precio)";
+            return sig;
+           }
          sig.dir      = SIGNAL_BUY;
          sig.sl_price = sl;
-         sig.tp_price = c1 + m_targetPct * caida;
+         sig.tp_price = tp;
          sig.reason   = StringFormat("Reversion COMPRA tras bajada de %.1f ATR (RSI7 %.0f)",
                                      caida / atr, rsi);
          m_note = "COMPRA por reversion";
@@ -152,14 +179,27 @@ public:
         {
          double entry = SymbolInfoDouble(m_symbol, SYMBOL_BID);
          double sl    = hh + m_slAtr * atr;
+         //--- Espejo del caso de compra: el stop va ARRIBA de la entrada.
+         if(entry <= 0.0 || sl <= entry)
+           {
+            m_note = "subida fuerte pero el precio ya paso el stop";
+            return sig;
+           }
          if(sl - entry > m_maxSlAtr * atr)
            {
             m_note = "subida fuerte pero el stop queda muy ancho";
             return sig;
            }
+         //--- Espejo: el objetivo tiene que quedar por debajo del BID.
+         double tp = c1 - m_targetPct * subida;
+         if(tp >= entry)
+           {
+            m_note = "la regresion ya ocurrio (objetivo detras del precio)";
+            return sig;
+           }
          sig.dir      = SIGNAL_SELL;
          sig.sl_price = sl;
-         sig.tp_price = c1 - m_targetPct * subida;
+         sig.tp_price = tp;
          sig.reason   = StringFormat("Reversion VENTA tras subida de %.1f ATR (RSI7 %.0f)",
                                      subida / atr, rsi);
          m_note = "VENTA por reversion";

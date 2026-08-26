@@ -53,9 +53,21 @@ contraseña (no se ve al escribirla — es normal) y riesgo por operación (Ente
 bash ~/atlas-ea/docker/cuentas.sh log xm-real
 ```
 
-Tiene que aparecer `ATLAS EA v2.00 iniciado`, y las líneas de configuración
-(`XAUUSD | SmartMoney`, `EURUSD | NINGUNA`). Si aparece `authorized` en
-`cuentas.sh conexion xm-real`, la cuenta quedó conectada. **Listo: opera sola 24/5.**
+Tiene que aparecer `ATLAS EA v2.00 iniciado` y **una línea por símbolo** con sus
+estrategias y su sesión, por ejemplo:
+
+```
+XAUUSD | SmartMoney | sesion LONDRES 08-17h = servidor 10-19h = tu hora (UTC-3) 04-13h
+XAGUSD | SmartMoney | sesion LONDRES 08-17h = servidor 10-19h = tu hora (UTC-3) 04-13h
+USDJPY | SmartMoney | sesion NUEVA YORK 08-13h = servidor 15-20h = tu hora (UTC-3) 09-14h
+```
+
+⚠️ Si alguna línea dice **`NINGUNA (no va a operar)`**, ese símbolo está en la cartera
+pero sin estrategia asignada: revisá el `.env` de esa cuenta. Y si un símbolo cae en
+`sesion SERVIDOR` sin que lo hayas pedido, es que no figura en ninguna lista de sesión.
+
+Si aparece `authorized` en `cuentas.sh conexion xm-real`, la cuenta quedó conectada.
+**Listo: opera sola 24/5.**
 
 ---
 
@@ -85,9 +97,17 @@ editar (con `nano` por ejemplo) y aplicar los cambios recreando el contenedor:
 |---|---|---|
 | `ATLAS_RISK` | Riesgo por operación (% del capital) | `1.5` |
 | `ATLAS_DAILY_LOSS` | Límite de pérdida diaria (%) | `5.0` |
-| `ATLAS_MAX_DD` | Freno de emergencia (% de caída desde el pico) | `50.0` |
-| `ATLAS_SMC_SYMBOLS` | Qué símbolos operan con Smart Money | `XAUUSD` |
+| `ATLAS_MAX_DD` | Freno de emergencia (% de caída desde el pico) | `30.0` |
+| `ATLAS_SYMBOLS` | Qué símbolos carga el bot | `XAUUSD,USDJPY,XAGUSD` |
+| `ATLAS_SMC_SYMBOLS` | Qué símbolos operan con Smart Money | `XAUUSD,USDJPY,XAGUSD` |
 | `ATLAS_CRT_SYMBOLS` | Qué símbolos operan con CRT | *(vacío — restaba en backtest)* |
+| `ATLAS_NY_SYMBOLS` | Qué símbolos operan en la sesión de Nueva York | `USDJPY` |
+| `ATLAS_LONDON_SYMBOLS` | Qué símbolos operan en la sesión de Londres | `XAUUSD,XAGUSD` |
+
+> Los "valores por defecto" son los que **compila el EA**. Si una variable no está en el
+> `.env`, el entrypoint no escribe esa línea y manda el default del EA. Si la ponés,
+> gana la del `.env` — así que si tocás `ATLAS_SYMBOLS` para sumar un símbolo, tenés que
+> tocar **también** su lista de estrategia y su lista de sesión, o no va a operar.
 
 Después de editar:
 

@@ -25,8 +25,15 @@ private:
      }
 
 public:
+   //--- Los miembros de un objeto recien creado valen 0, y 0 NO es
+   //--- INVALID_HANDLE. Sin invalidar, Release() liberaria el handle 0.
+   CRegimeDetector() { Invalidate(); }
+
+   void Invalidate() { m_hADX = INVALID_HANDLE; m_hBB = INVALID_HANDLE; }
+
    bool Init(const string symbol, const double adxThreshold, const double squeezeRatio)
      {
+      Release();                 // idempotente: reinicializar no fuga handles
       m_symbol       = symbol;
       m_adxThreshold = adxThreshold;
       m_squeezeRatio = squeezeRatio;
@@ -39,6 +46,7 @@ public:
      {
       if(m_hADX != INVALID_HANDLE) IndicatorRelease(m_hADX);
       if(m_hBB  != INVALID_HANDLE) IndicatorRelease(m_hBB);
+      Invalidate();
      }
 
    bool Ready()

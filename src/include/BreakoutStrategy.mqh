@@ -58,9 +58,16 @@ private:
      }
 
 public:
+   //--- Los miembros de un objeto recien creado valen 0, y 0 NO es
+   //--- INVALID_HANDLE. Sin invalidar, Release() liberaria el handle 0.
+   CBreakoutStrategy() { Invalidate(); }
+
+   void Invalidate() { m_hAtrH1 = INVALID_HANDLE; m_hAtrM15 = INVALID_HANDLE; }
+
    bool Init(const string symbol, const int asiaStartHour, const int asiaEndHour,
              const int breakEndHour, const double maxRangeAtrMult, const double atrSlMult)
      {
+      Release();                 // idempotente: reinicializar no fuga handles
       m_symbol          = symbol;
       m_asiaStartHour   = asiaStartHour;
       m_asiaEndHour     = asiaEndHour;
@@ -77,6 +84,7 @@ public:
      {
       if(m_hAtrH1  != INVALID_HANDLE) IndicatorRelease(m_hAtrH1);
       if(m_hAtrM15 != INVALID_HANDLE) IndicatorRelease(m_hAtrM15);
+      Invalidate();
      }
 
    bool Ready()
