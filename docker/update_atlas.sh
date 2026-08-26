@@ -49,6 +49,55 @@ if [ ! -f "$REPO/.env" ]; then
    exit 1
 fi
 
+# El .env GANA sobre los defaults compilados del EA. Un .env viejo hace que el
+# bot siga operando la cartera anterior aunque el codigo ya traiga otra, y sin
+# ningun error: eso fue exactamente lo que paso con EURUSD,XAUUSD. Se compara
+# lo que hay en el .env contra lo que compila el EA y se avisa ANTES de tocar
+# el bot que esta corriendo.
+ea_default() {   # default de un input string de Atlas_EA.mq5
+   sed -n "s/^input\s\+string\s\+$1\s*=\s*\"\([^\"]*\)\".*/\1/p" "$REPO/src/Atlas_EA.mq5" | head -1
+}
+env_valor() { grep -aE "^$1=" "$REPO/.env" | tail -1 | cut -d= -f2-; }
+# Normaliza los alias del broker antes de comparar: sin esto, un .env de XM
+# (GOLD/SILVER) daria "desincronizado" en cada actualizacion aunque sea la
+# MISMA cartera, y un aviso que salta siempre deja de leerse.
+ordenar() {
+   tr ',' '\n' | sed 's/^ *//; s/ *$//' | grep -v '^$' \
+   | sed 's/^GOLD.*$/XAUUSD/; s/^SILVER.*$/XAGUSD/; s/^XAUUSD\..*$/XAUUSD/; s/^XAGUSD\..*$/XAGUSD/' \
+   | sort -u | paste -sd, -
+}
+
+DESYNC=0
+for PAR in "ATLAS_SYMBOLS:InpSymbols" \
+           "ATLAS_SMC_SYMBOLS:InpSmcSymbols" \
+           "ATLAS_NY_SYMBOLS:InpNewYorkSymbols" \
+           "ATLAS_LONDON_SYMBOLS:InpLondonSymbols"; do
+   VAR="${PAR%%:*}"; INP="${PAR##*:}"
+   grep -qaE "^$VAR=" "$REPO/.env" || continue      # no definida: manda el EA, ok
+   V_ENV=$(env_valor  "$VAR" | ordenar)
+   V_EA=$(ea_default  "$INP" | ordenar)
+   if [ "$V_ENV" != "$V_EA" ]; then
+      [ "$DESYNC" = "0" ] && echo && echo "  ⚠ EL .env NO COINCIDE CON EL CODIGO NUEVO:"
+      DESYNC=1
+      printf '      %-22s .env=%-28s EA=%s\n' "$VAR" "${V_ENV:-(vacio)}" "${V_EA:-(vacio)}"
+   fi
+done
+
+if [ "$DESYNC" = "1" ]; then
+   echo
+   echo "    El .env tiene prioridad, asi que el bot va a seguir operando la"
+   echo "    cartera de la izquierda aunque actualices el codigo."
+   echo
+   echo "    Para adoptar la cartera del codigo:  bash $REPO/docker/set_password.sh"
+   echo "    Para dejar la del .env a proposito:  seguí (es una configuracion valida)."
+   echo
+   read -rp "  ¿Actualizar igual con el .env actual? [s/N]: " SEGUIR
+   case "${SEGUIR:-N}" in
+      s|S|si|SI|Si) echo "  → Sigo con el .env actual." ;;
+      *) echo "  ✗ Cancelado. El bot sigue corriendo sin cambios."; exit 1 ;;
+   esac
+fi
+
 echo "  Relanzando el bot con la imagen nueva..."
 "$DOCKER" rm -f "$NAME" >/dev/null 2>&1 || true
 "$DOCKER" run -d \

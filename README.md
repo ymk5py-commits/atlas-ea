@@ -3,6 +3,11 @@
 Bot de trading intradía con gestión de riesgo estricta: límite de pérdida diaria, kill
 switch por drawdown, filtro de noticias y cierre pre-fin de semana.
 
+> 📖 Este archivo explica **cómo usar** el bot. Para tocar el código o el despliegue, leé
+> antes [`docs/MANTENIMIENTO.md`](docs/MANTENIMIENTO.md): qué se puede verificar sin
+> tener MetaTrader instalado, qué garantiza cada red de seguridad y por qué existe, los
+> invariantes que es fácil romper, y qué queda pendiente de validar.
+
 ## Configuración actual
 
 Cada instrumento tiene **su propia sesión y sus propias estrategias**:
