@@ -123,6 +123,14 @@ public:
       double sl    = NormPrice(symbol, sig.sl_price);
       double slDist = MathAbs(entry - sl);
 
+      //--- El SL tiene que estar del lado que protege: debajo en compras,
+      //--- arriba en ventas. La distancia sola no alcanza — un SL del lado
+      //--- equivocado tiene distancia de sobra y el broker lo rechaza.
+      if(sl <= 0.0 || (sig.dir == SIGNAL_BUY ? sl >= entry : sl <= entry))
+        {
+         m_notifier.Log(symbol + ": SL del lado equivocado del precio. Señal descartada.");
+         return false;
+        }
       if(slDist < stopsLevel * point + point)
         {
          m_notifier.Log(symbol + ": SL demasiado cerca (stops level del broker). Señal descartada.");
@@ -207,6 +215,14 @@ public:
       double sl    = NormPrice(symbol, sig.sl_price);
       double slDist = MathAbs(entry - sl);
 
+      //--- Mismo criterio que Open(): el lado del SL importa tanto como la
+      //--- distancia. Un SL del lado equivocado pasa el filtro de distancia
+      //--- y termina en un rechazo del broker.
+      if(sl <= 0.0 || (sig.dir == SIGNAL_BUY ? sl >= entry : sl <= entry))
+        {
+         m_notifier.Log(symbol + ": scalp descartado, SL del lado equivocado del precio.");
+         return false;
+        }
       if(slDist < stopsLevel * point + point)
         {
          m_notifier.Log(symbol + ": scalp descartado, SL demasiado cerca (stops level).");
@@ -214,13 +230,22 @@ public:
         }
 
       //--- Si la estrategia fijó su propio objetivo (reversión: el % del tramo
-      //--- que se espera recuperar), se respeta. Si no, se usa el R fijo.
-      double tp;
+      //--- que se espera recuperar), se respeta — pero se valida igual que en
+      //--- Open(): el objetivo de la reversión se calcula sobre el cierre de
+      //--- la vela, no sobre la entrada, así que puede quedar del lado
+      //--- equivocado o dentro del stops level. Si no sirve, se cae al R fijo.
+      double tpR = NormPrice(symbol, sig.dir == SIGNAL_BUY ? entry + rrScalp * slDist
+                                                           : entry - rrScalp * slDist);
+      double tp  = tpR;
       if(sig.tp_price > 0.0)
-         tp = NormPrice(symbol, sig.tp_price);
-      else
-         tp = NormPrice(symbol, sig.dir == SIGNAL_BUY ? entry + rrScalp * slDist
-                                                      : entry - rrScalp * slDist);
+        {
+         double cand  = NormPrice(symbol, sig.tp_price);
+         bool okSide  = (sig.dir == SIGNAL_BUY ? cand > entry : cand < entry);
+         if(okSide && MathAbs(cand - entry) >= stopsLevel * point + point)
+            tp = cand;
+         else
+            m_notifier.Log(symbol + ": TP del scalp invalido o muy cerca, se usa el objetivo en R.");
+        }
 
       m_trade.SetTypeFillingBySymbol(symbol);
       bool ok = false;

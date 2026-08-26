@@ -94,12 +94,19 @@ private:
      }
 
 public:
+   //--- Los miembros de un objeto recien creado valen 0, y 0 NO es
+   //--- INVALID_HANDLE. Sin invalidar, Release() liberaria el handle 0.
+   CCrtStrategy() { Invalidate(); }
+
+   void Invalidate() { m_hAtrTf = INVALID_HANDLE; m_hAtrM15 = INVALID_HANDLE; }
+
    bool Init(const string symbol, const ENUM_TIMEFRAMES tf, const int mode,
              const double minRangeAtr, const double maxRangeAtr,
              const double maxPurgePct, const double minRR,
              const double slBufferAtr, const bool requireEq,
              const bool needRejection, const bool followRegime)
      {
+      Release();                 // idempotente: reinicializar no fuga handles
       m_symbol          = symbol;
       m_tf              = (tf == PERIOD_CURRENT ? PERIOD_H4 : tf);
       m_mode            = (mode == 1 ? 1 : 0);
@@ -123,6 +130,7 @@ public:
      {
       if(m_hAtrTf  != INVALID_HANDLE) IndicatorRelease(m_hAtrTf);
       if(m_hAtrM15 != INVALID_HANDLE) IndicatorRelease(m_hAtrM15);
+      Invalidate();
      }
 
    bool Ready()

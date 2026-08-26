@@ -225,12 +225,19 @@ private:
      }
 
 public:
+   //--- Los miembros de un objeto recien creado valen 0, y 0 NO es
+   //--- INVALID_HANDLE. Sin invalidar, Release() liberaria el handle 0.
+   CSmcStrategy() { Invalidate(); }
+
+   void Invalidate() { m_hAtrM15 = INVALID_HANDLE; }
+
    bool Init(const string symbol, const int fractal, const int lookback,
              const int maxAgeBars, const double dispMult, const double slBufferAtr,
              const double maxSlAtr, const bool requireHtf, const bool requireSweep,
              const bool requireDiscount, const bool needRejection,
              const bool useFvg, const bool allowChoppy)
      {
+      Release();                 // idempotente: reinicializar no fuga handles
       m_symbol          = symbol;
       m_fractal         = (int)MathMax(1, fractal);
       m_lookback        = (int)MathMax(60, lookback);
@@ -257,6 +264,7 @@ public:
      {
       if(m_hAtrM15 != INVALID_HANDLE)
          IndicatorRelease(m_hAtrM15);
+      Invalidate();
      }
 
    bool Ready()

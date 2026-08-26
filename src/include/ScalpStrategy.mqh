@@ -34,9 +34,20 @@ private:
      }
 
 public:
+   //--- Los miembros de un objeto recien creado valen 0, y 0 NO es
+   //--- INVALID_HANDLE. Sin invalidar, Release() liberaria el handle 0.
+   CScalpStrategy() { Invalidate(); }
+
+   void Invalidate()
+     {
+      m_hEma9 = INVALID_HANDLE; m_hEma21 = INVALID_HANDLE;
+      m_hRsi7 = INVALID_HANDLE; m_hAtr   = INVALID_HANDLE;
+     }
+
    bool Init(const string symbol, const double atrMult,
              const double rsiBuy, const double rsiSell)
      {
+      Release();                 // idempotente: reinicializar no fuga handles
       m_symbol  = symbol;
       m_atrMult = atrMult;
       m_rsiBuy  = rsiBuy;
@@ -55,6 +66,7 @@ public:
       if(m_hEma21 != INVALID_HANDLE) IndicatorRelease(m_hEma21);
       if(m_hRsi7  != INVALID_HANDLE) IndicatorRelease(m_hRsi7);
       if(m_hAtr   != INVALID_HANDLE) IndicatorRelease(m_hAtr);
+      Invalidate();
      }
 
    bool Ready()

@@ -58,8 +58,28 @@ private:
      }
 
 public:
+   //--- Un objeto recien creado tiene los miembros en 0, y 0 NO es
+   //--- INVALID_HANDLE: sin esto, Release() intentaria liberar el handle 0.
+   CTVRating() { Invalidate(); }
+
+   void Invalidate()
+     {
+      for(int i = 0; i < 6; i++)
+        {
+         m_hSMA[i] = INVALID_HANDLE;
+         m_hEMA[i] = INVALID_HANDLE;
+        }
+      m_hIchimoku = INVALID_HANDLE; m_hRSI      = INVALID_HANDLE;
+      m_hStoch    = INVALID_HANDLE; m_hCCI      = INVALID_HANDLE;
+      m_hADX      = INVALID_HANDLE; m_hAO       = INVALID_HANDLE;
+      m_hMomentum = INVALID_HANDLE; m_hMACD     = INVALID_HANDLE;
+      m_hWPR      = INVALID_HANDLE; m_hBulls    = INVALID_HANDLE;
+      m_hBears    = INVALID_HANDLE;
+     }
+
    bool Init(const string symbol, const ENUM_TIMEFRAMES tf)
      {
+      Release();                 // idempotente: reinicializar no fuga handles
       m_symbol = symbol;
       m_tf     = tf;
       m_lastAvg = 0.0;
@@ -110,6 +130,7 @@ public:
       if(m_hWPR      != INVALID_HANDLE) IndicatorRelease(m_hWPR);
       if(m_hBulls    != INVALID_HANDLE) IndicatorRelease(m_hBulls);
       if(m_hBears    != INVALID_HANDLE) IndicatorRelease(m_hBears);
+      Invalidate();              // no volver a liberar handles ya liberados
      }
 
    bool Ready()
