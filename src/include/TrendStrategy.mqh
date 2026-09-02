@@ -79,10 +79,7 @@ public:
    SSignal Check(const ERegime regime)
      {
       SSignal sig;
-      sig.dir      = SIGNAL_NONE;
-      sig.sl_price = 0.0;
-      sig.tp_price = 0.0;
-      sig.reason   = "";
+      ResetSignal(sig);
 
       if(regime != REGIME_TREND_UP && regime != REGIME_TREND_DOWN)
          return sig;
@@ -123,6 +120,8 @@ public:
          double slSwing = swingLow - spreadPrice;
          double slAtr   = entry - m_atrSlMult * atr[0];
          sig.dir      = SIGNAL_BUY;
+         sig.setup    = SETUP_PULLBACK;
+         sig.timeframe = "M15";
          sig.sl_price = MathMin(slSwing, slAtr);     // el más lejano protege mejor
          sig.reason   = "Pullback tendencia alcista (RSI9 recupera 50)";
          m_armedLong  = false;
@@ -142,6 +141,8 @@ public:
          double slSwing = swingHigh + spreadPrice;
          double slAtr   = entry + m_atrSlMult * atr[0];
          sig.dir      = SIGNAL_SELL;
+         sig.setup    = SETUP_PULLBACK;
+         sig.timeframe = "M15";
          sig.sl_price = MathMax(slSwing, slAtr);     // el más lejano
          sig.reason   = "Pullback tendencia bajista (RSI9 pierde 50)";
          m_armedShort = false;

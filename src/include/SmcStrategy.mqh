@@ -89,6 +89,32 @@ double SmcMeanRange(const double &hi[], const double &lo[],
   }
 
 //+------------------------------------------------------------------+
+//| Confianza 0-100 de un setup SMC a partir de sus propios           |
+//| componentes. Base 40 (paso todos los filtros duros) y suma:      |
+//|   +15 barrido de liquidez previo (la pierna nacio cazando stops) |
+//|   +10 zona refinada con FVG (POI mas preciso)                     |
+//|   +0..15 fuerza del desplazamiento (rango del quiebre / medio,   |
+//|          de 1x a 3x)                                              |
+//|   +10/6/3/0 frescura del quiebre (<=3, <=8, <=15 velas)            |
+//|   +10 continuacion (BOS) / +5 reversion (CHoCH)                   |
+//| Puro: se testea en Atlas_SelfTest.                                |
+//+------------------------------------------------------------------+
+int SmcScore(const bool swept, const bool usedFvg, const double dispRatio,
+             const int barsSinceBreak, const bool reversal)
+  {
+   int score = 40;
+   if(swept)   score += 15;
+   if(usedFvg) score += 10;
+   double d = MathMin(MathMax(dispRatio, 1.0), 3.0);
+   score += (int)MathRound((d - 1.0) / 2.0 * 15.0);
+   if(barsSinceBreak <= 3)       score += 10;
+   else if(barsSinceBreak <= 8)  score += 6;
+   else if(barsSinceBreak <= 15) score += 3;
+   score += (reversal ? 5 : 10);
+   return ClampScore(score);
+  }
+
+//+------------------------------------------------------------------+
 //| Recorre la estructura de la vela más vieja a la más nueva y      |
 //| devuelve el ÚLTIMO quiebre válido.                               |
 //|   dir      : +1 alcista, -1 bajista, 0 sin quiebre               |
@@ -295,10 +321,7 @@ public:
    SSignal Check(const ERegime regime)
      {
       SSignal sig;
-      sig.dir         = SIGNAL_NONE;
-      sig.sl_price    = 0.0;
-      sig.tp_price    = 0.0;           // objetivo por gestion (parcial + trailing)
-      sig.reason      = "";
+      ResetSignal(sig);
       m_pendingOrigin = 0;
 
       //--- La compresión es territorio de la ruptura asiática
@@ -581,8 +604,22 @@ public:
       sig.sl_price    = sl;
       sig.reason      = "SMC " + kind + " " + (usedFvg ? "OB+FVG" : "OB") +
                         (swept ? " +barrido" : "");
+
+      //--- Plan de trading: zona, invalidacion (por CIERRE, mas ajustada que
+      //--- el SL que va por mecha), tipo de setup y confianza
+      bool   reversal = (kind == "CHoCH");
+      double mr       = SmcMeanRange(hi, lo, bbar + 1, 20, total);
+      double dispRatio = (mr > 0.0 ? (hi[bbar] - lo[bbar]) / mr : 1.0);
+      sig.zone_lo      = zBot;
+      sig.zone_hi      = zTop;
+      sig.invalidation = (dir == 1 ? zBot : zTop);
+      sig.setup        = (reversal ? SETUP_REVERSION : SETUP_CONTINUACION);
+      sig.timeframe    = "M15";
+      sig.score        = SmcScore(swept, usedFvg, dispRatio, bbar, reversal);
+
       m_pendingOrigin = r[obIdx].time;
-      m_lastNote      = "SENAL " + (dir == 1 ? "COMPRA" : "VENTA") + " — " + sig.reason;
+      m_lastNote      = "SENAL " + (dir == 1 ? "COMPRA" : "VENTA") + " — " + sig.reason +
+                        StringFormat(" | confianza %d (%s)", sig.score, ConfidenceLabel(sig.score));
       return sig;
      }
   };

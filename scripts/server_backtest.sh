@@ -123,6 +123,12 @@ run_test   jpy_smc       "$JPY"    ""   "$JPY"
 BT_SYMBOLS="$ORO,$JPY,$PLATA" \
 run_test   cartera_smc   "$ORO"    ""   "$ORO,$JPY,$PLATA"
 
+# --- Esquema v2.1: ¿el gate de confianza o el check de volatilidad SUMAN
+# sobre la config vigente? Nacen apagados; esto decide si se encienden.
+#          tag              simbolo  CRT  SMC     TREND  extra
+run_test   oro_smc_conf60   "$ORO"   ""   "$ORO"  ""     $'InpMinScore=60\r\n'
+run_test   oro_smc_vol      "$ORO"   ""   "$ORO"  ""     $'InpVolCheck=true\r\n'
+
 echo
 echo "[bt] Contrastar contra lo documentado en src/Atlas_EA.mq5:"
 echo "[bt]   oro_smc      esperado ~561.02 (+12.2%)  84 trades  DD  8.8%"

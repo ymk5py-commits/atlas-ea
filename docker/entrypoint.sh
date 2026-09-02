@@ -78,6 +78,10 @@ emit_if_set() {
   emit_if_set InpBreakoutSymbols ATLAS_BREAKOUT_SYMBOLS
   emit_if_set InpRevSymbols      ATLAS_REV_SYMBOLS
   emit_if_set InpScalpSymbols    ATLAS_M1_SCALP_SYMBOLS
+
+  # Esquema v2.1 (nacen apagados; encender solo con evidencia de backtest)
+  emit_if_set InpMinScore        ATLAS_MIN_SCORE
+  emit_if_set InpVolCheck        ATLAS_VOL_CHECK
   emit_if_set InpNewYorkSymbols  ATLAS_NY_SYMBOLS
   emit_if_set InpLondonSymbols   ATLAS_LONDON_SYMBOLS
 } > "${PARAMS_DIR}/atlas_params.set"

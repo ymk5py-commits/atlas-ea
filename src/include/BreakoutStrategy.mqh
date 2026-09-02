@@ -101,10 +101,7 @@ public:
    SSignal Check(const ERegime regime)
      {
       SSignal sig;
-      sig.dir      = SIGNAL_NONE;
-      sig.sl_price = 0.0;
-      sig.tp_price = 0.0;
-      sig.reason   = "";
+      ResetSignal(sig);
 
       if(regime != REGIME_SQUEEZE)
          return sig;
@@ -139,6 +136,8 @@ public:
          double slRange = rangeLow;
          double slAtr   = entry - m_atrSlMult * atrM15;
          sig.dir      = SIGNAL_BUY;
+         sig.setup    = SETUP_RUPTURA;
+         sig.timeframe = "M15";
          sig.sl_price = MathMax(slRange, slAtr);   // el más CERCANO (spec 4.3)
          sig.reason   = "Ruptura alcista del rango asiatico";
          return sig;
@@ -151,6 +150,8 @@ public:
          double slRange = rangeHigh;
          double slAtr   = entry + m_atrSlMult * atrM15;
          sig.dir      = SIGNAL_SELL;
+         sig.setup    = SETUP_RUPTURA;
+         sig.timeframe = "M15";
          sig.sl_price = MathMin(slRange, slAtr);   // el más CERCANO
          sig.reason   = "Ruptura bajista del rango asiatico";
          return sig;

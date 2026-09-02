@@ -79,10 +79,7 @@ public:
    SSignal Check()
      {
       SSignal sig;
-      sig.dir      = SIGNAL_NONE;
-      sig.sl_price = 0.0;
-      sig.tp_price = 0.0;
-      sig.reason   = "";
+      ResetSignal(sig);
 
       double ema9 = 0, ema21 = 0, rsi = 0, atr = 0;
       if(!CopyOne(m_hEma9, ema9) || !CopyOne(m_hEma21, ema21) ||
@@ -110,6 +107,8 @@ public:
         {
          double entry = SymbolInfoDouble(m_symbol, SYMBOL_ASK);
          sig.dir      = SIGNAL_BUY;
+         sig.setup    = SETUP_MOMENTUM;
+         sig.timeframe = "M1";
          sig.sl_price = entry - m_atrMult * atr;
          sig.reason   = StringFormat("Scalp COMPRA momentum M1 (RSI7 %.0f)", rsi);
          return sig;
@@ -120,6 +119,8 @@ public:
         {
          double entry = SymbolInfoDouble(m_symbol, SYMBOL_BID);
          sig.dir      = SIGNAL_SELL;
+         sig.setup    = SETUP_MOMENTUM;
+         sig.timeframe = "M1";
          sig.sl_price = entry + m_atrMult * atr;
          sig.reason   = StringFormat("Scalp VENTA momentum M1 (RSI7 %.0f)", rsi);
          return sig;

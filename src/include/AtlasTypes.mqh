@@ -35,13 +35,92 @@ enum ESignalDir
   };
 
 //--- Señal emitida por una estrategia
+//--- Tipo de setup (para el plan de trading y las estadisticas)
+enum ESetupType
+  {
+   SETUP_NONE,          // sin clasificar
+   SETUP_RUPTURA,       // el precio rompe niveles clave
+   SETUP_PULLBACK,      // retroceso dentro de la tendencia
+   SETUP_MOMENTUM,      // aceleracion fuerte del precio
+   SETUP_CONTINUACION,  // la estructura se mantiene (BOS)
+   SETUP_REVERSION      // posible giro (CHoCH, purga, regresion)
+  };
+
+//--- Señal emitida por una estrategia = PLAN DE TRADING completo.
+//--- Esquema: la estrategia no devuelve solo "compra/vende", devuelve la
+//--- idea entera: zona de entrada, objetivo, stop, nivel que la invalida,
+//--- tipo de setup, temporalidad y una confianza 0-100 (si la puntua).
 struct SSignal
   {
    ESignalDir        dir;
-   double            sl_price;   // stop loss propuesto (precio)
-   double            tp_price;   // objetivo fijo; 0 = lo gestiona el TradeManager
-   string            reason;     // descripción para log/notificación
+   double            sl_price;     // stop loss propuesto (precio)
+   double            tp_price;     // objetivo fijo; 0 = lo gestiona el TradeManager
+   string            reason;       // descripción para log/notificación
+   //--- plan de trading (v2.1)
+   double            zone_lo;      // zona de entrada; 0/0 = entrada a mercado sin zona
+   double            zone_hi;
+   double            invalidation; // nivel cuyo CIERRE anula la idea; 0 = el propio SL
+   int               score;        // confianza 0-100; -1 = la estrategia no puntua
+   ESetupType        setup;
+   string            timeframe;    // "M1", "M15", "H4"...
   };
+
+//--- Deja una señal en su estado neutro. TODA estrategia arranca Check() acá.
+void ResetSignal(SSignal &s)
+  {
+   s.dir          = SIGNAL_NONE;
+   s.sl_price     = 0.0;
+   s.tp_price     = 0.0;
+   s.reason       = "";
+   s.zone_lo      = 0.0;
+   s.zone_hi      = 0.0;
+   s.invalidation = 0.0;
+   s.score        = -1;
+   s.setup        = SETUP_NONE;
+   s.timeframe    = "";
+  }
+
+int ClampScore(const int score)
+  {
+   if(score < 0)   return 0;
+   if(score > 100) return 100;
+   return score;
+  }
+
+//--- Escala de confianza del esquema: ALTA / MEDIA / BAJA
+string ConfidenceLabel(const int score)
+  {
+   if(score < 0)   return "-";
+   if(score >= 70) return "ALTA";
+   if(score >= 45) return "MEDIA";
+   return "BAJA";
+  }
+
+string SetupTypeToString(const ESetupType t)
+  {
+   switch(t)
+     {
+      case SETUP_RUPTURA:      return "ruptura";
+      case SETUP_PULLBACK:     return "pullback";
+      case SETUP_MOMENTUM:     return "momentum";
+      case SETUP_CONTINUACION: return "continuacion";
+      case SETUP_REVERSION:    return "reversion";
+     }
+   return "sin clasificar";
+  }
+
+//--- Beneficio/riesgo del plan. Con objetivo fijo se mide contra el; sin
+//--- objetivo (gestion por parcial + trailing) se informa el R nominal.
+double PlanRewardRisk(const double entry, const double sl, const double tp, const double nominalRR)
+  {
+   double risk = MathAbs(entry - sl);
+   if(risk <= 0.0)
+      return 0.0;
+   if(tp <= 0.0)
+      return nominalRR;
+   double reward = (sl > entry ? entry - tp : tp - entry);
+   return (reward > 0.0 ? reward / risk : 0.0);
+  }
 
 //+------------------------------------------------------------------+
 //| Mitad inferior del rango (descuento): la zona donde se compra.   |
