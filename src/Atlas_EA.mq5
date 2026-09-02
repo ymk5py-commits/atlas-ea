@@ -6,7 +6,7 @@
 //| Validar SIEMPRE en backtest y cuenta demo antes de dinero real.  |
 //+------------------------------------------------------------------+
 #property copyright "ATLAS EA — uso personal"
-#property version   "2.10"
+#property version   "2.20"
 #property strict
 
 #include "include/AtlasTypes.mqh"
@@ -107,6 +107,19 @@ input bool   InpVolCheck         = false;  // Check de volatilidad: bloquear si 
 input double InpVolMaxRatio      = 2.5;    // Volatilidad max: ATR actual / promedio de 96 velas (pico anormal)
 input double InpVolMinRatio      = 0.35;   // Volatilidad min (mercado muerto)
 
+input group "Decision final (esquema: memo + revision humana + alertas 24/7)"
+// Cada senal que pasa el riesgo genera un MEMO DE DECISION (setup, fuerza,
+// riesgo, plan, estado). En AUTOMATICO el memo es informativo y se ejecuta;
+// en CONFIRMAR el bot espera tu respuesta por Telegram; en WATCHLIST solo
+// observa. CONFIRMAR sin Telegram configurado cae a AUTOMATICO (no hay como
+// recibir la respuesta). En el Strategy Tester siempre es AUTOMATICO.
+input int    InpDecisionMode     = 0;      // 0 = AUTOMATICO · 1 = CONFIRMAR por Telegram · 2 = WATCHLIST (no opera)
+input int    InpApprovalMinutes  = 15;     // CONFIRMAR: minutos de espera por APROBAR / RECHAZAR / WATCH
+input bool   InpApprovalDefault  = false;  // CONFIRMAR: si vence sin respuesta, true = ejecutar igual, false = descartar
+input string InpTgToken          = "";     // Telegram: token del bot (BotFather). Vacio = sin Telegram
+input long   InpTgChatId         = 0;      // Telegram: id del chat autorizado (SOLO ese chat puede responder)
+input bool   InpStatusAlerts     = true;   // Alertas 24/7: sesion abierta/cerrada, resumen diario, limite diario
+
 input group "Sesiones — que simbolo opera en que ventana"
 // Las horas van en la HORA DE CADA PLAZA; el bot convierte solo, con el
 // horario de verano que corresponda a cada una. Un simbolo que no figure
@@ -177,6 +190,22 @@ CSessionFilter    *g_session[];    // una ventana por simbolo
 CRiskManager       g_risk;
 CTradeManager      g_trade;
 CNewsFilter        g_news;
+CTelegram          g_telegram;
+
+//--- Decision pendiente de aprobacion humana (una por vez)
+bool               g_pendActive = false;
+int                g_pendIdx = -1;
+SSignal            g_pendSig;
+double             g_pendEntry = 0.0;
+string             g_pendId = "";
+datetime           g_pendSince = 0;
+bool               g_pendFromSmc = false, g_pendFromCrt = false, g_pendFromBreakout = false;
+int                g_memoSeq = 0;
+datetime           g_lastTgPoll = 0;
+//--- Alertas de estado 24/7
+int                g_sessState[];       // por simbolo: -1 desconocido, 0 cerrada, 1 abierta
+datetime           g_lastDay = 0;
+bool               g_dailyLossNotified = false;
 CDashboard         g_dash;
 
 CTVRating         *g_tvM15[];
@@ -389,7 +418,8 @@ int OnInit()
      }
 
    //--- Módulos globales
-   g_notifier.Init(InpEnablePush);
+   g_telegram.Init(InpTgToken, InpTgChatId);
+   g_notifier.Init(InpEnablePush, GetPointer(g_telegram));
    g_risk.Init(InpRiskPct, InpDailyLossPct, InpMaxDrawdownPct, InpMaxTotalRiskPct,
                InpMaxTradesPerDay, InpMaxPositions, InpResetKillSwitch,
                GetPointer(g_notifier), g_symbols);
@@ -416,6 +446,7 @@ int OnInit()
    ArrayResize(g_useBreakout, n);
    ArrayResize(g_useSmc, n);
    ArrayResize(g_useCrt, n);
+   ArrayResize(g_sessState, n);
    ArrayResize(g_hAtrM15, n);
    ArrayResize(g_lastM15, n);
    ArrayResize(g_lastM1, n);
@@ -445,6 +476,7 @@ int OnInit()
       g_useBreakout[i] = SymbolInList(g_symbols[i], InpBreakoutSymbols);
       g_useSmc[i]      = SymbolInList(g_symbols[i], InpSmcSymbols);
       g_useCrt[i]      = SymbolInList(g_symbols[i], InpCrtSymbols);
+      g_sessState[i]   = -1;
 
       ESesion zone = SessionZoneFor(g_symbols[i]);
       g_session[i] = new CSessionFilter();
@@ -474,7 +506,7 @@ int OnInit()
 
    EventSetTimer(1);
    g_notifier.Log(StringFormat(
-      "ATLAS EA v2.10 iniciado. Simbolos: %s | Riesgo %.1f%%/op | Limite diario %.1f%% | Kill switch %.0f%%",
+      "ATLAS EA v2.20 iniciado. Simbolos: %s | Riesgo %.1f%%/op | Limite diario %.1f%% | Kill switch %.0f%%",
       InpSymbols, InpRiskPct, InpDailyLossPct, InpMaxDrawdownPct));
    //--- Una linea por simbolo: que corre, en que ventana, y esa ventana
    //--- traducida a hora del servidor y a la hora del usuario. Es el
@@ -509,6 +541,11 @@ int OnInit()
          g_session[0].ServerOffsetSec() / 3600,
          (IsUsDst(utcNow) ? "si" : "no"), (IsEuDst(utcNow) ? "si" : "no")));
      }
+   if(g_telegram.Enabled())
+      g_telegram.Send(StringFormat("ATLAS EA v2.20 en linea | decision: %s | comandos: ESTADO · APROBAR <id> · RECHAZAR <id> · WATCH <id>",
+                      (InpDecisionMode == 1 ? "CONFIRMAR (espero tu APROBAR)" : InpDecisionMode == 2 ? "WATCHLIST (no opero)" : "AUTOMATICO")));
+   else if(InpDecisionMode == 1)
+      g_notifier.Log("Decision: modo CONFIRMAR pedido pero sin Telegram configurado (token/chat id): se opera en AUTOMATICO.");
    if(TerminalInfoInteger(TERMINAL_VPS))
       g_notifier.Notify("Corriendo en VPS 24/5 (sin panel visual). El pico de equity del kill switch arranca desde el equity actual.");
    if(g_risk.KillSwitchLatched())
@@ -601,7 +638,9 @@ void RunCycle()
       g_trade.CloseAllOwn("kill switch por drawdown maximo");
    bool killed = g_risk.KillSwitchLatched();
 
-   //--- 1) Rollover diario (y fijar la referencia si la cuenta recién sincronizó)
+   //--- 1) Rollover diario (y fijar la referencia si la cuenta recién sincronizó).
+   //---    Antes del rollover, el resumen del dia que termina (alerta 24/7).
+   DailySummaryIfNewDay();
    g_risk.EnsureBaseline();
    g_risk.CheckNewDay();
 
@@ -668,6 +707,10 @@ void RunCycle()
             continue;
          EvaluateRev(i);
         }
+
+   //--- 5d) Decision final: vencimientos, respuestas por Telegram y alertas 24/7
+   HandleDecisions();
+   StatusAlerts();
 
    //--- 6) Dashboard cada 5 s
    datetime now = TimeCurrent();
@@ -873,18 +916,52 @@ bool EvaluateSymbol(const int idx)
    string zona = (sig.zone_hi > sig.zone_lo && sig.zone_lo > 0.0
                   ? DoubleToString(sig.zone_lo, dg) + "-" + DoubleToString(sig.zone_hi, dg)
                   : "a mercado");
-   g_notifier.Notify(StringFormat("PLAN %s %s | %s %s | zona %s | SL %s | TP %s | invalida %s | R:B 1:%.1f | confianza %s",
-                     (sig.dir == SIGNAL_BUY ? "COMPRA" : "VENTA"), symbol,
-                     SetupTypeToString(sig.setup), sig.timeframe, zona,
-                     DoubleToString(sig.sl_price, dg),
-                     (sig.tp_price > 0.0 ? DoubleToString(sig.tp_price, dg) : "gestion (parcial+trailing)"),
-                     (sig.invalidation > 0.0 ? DoubleToString(sig.invalidation, dg) : "= SL"),
-                     rrP, (sig.score >= 0 ? StringFormat("%d %s", sig.score, ConfidenceLabel(sig.score)) : "n/d")));
    g_notifier.Log(StringFormat("RIESGO %s: tamano %.2f lot OK · exposicion %.1f%%/%.1f%% OK · drawdown %.1f%%/%.0f%% OK · volatilidad x%.2f %s · perdida diaria %+.2f%%/-%.1f%% OK -> PASA",
                   symbol, lots, g_risk.OpenRiskPct(), InpMaxTotalRiskPct,
                   g_risk.DrawdownFromPeakPct(), InpMaxDrawdownPct,
                   volRatio, (InpVolCheck ? "OK" : "(sin check)"),
                   g_risk.DayPnLPct(), InpDailyLossPct));
+
+   //--- MEMO DE DECISION FINAL + revision humana
+   int mode = InpDecisionMode;
+   if(mode == 1 && !g_telegram.Enabled())
+      mode = 0;                          // sin canal de respuesta no se puede esperar
+   g_memoSeq++;
+   string memoId = MemoId(TimeTradeServer(), g_memoSeq);
+   string estado;
+   if(mode == 0)      estado = "DECISION LISTA -> APROBADO (automatico), se ejecuta";
+   else if(mode == 2) estado = "DECISION LISTA -> WATCHLIST: no se opera, solo se observa";
+   else               estado = StringFormat("DECISION LISTA -> ESPERANDO TU APROBACION (%d min). Responder: APROBAR %s | RECHAZAR %s | WATCH %s%s",
+                                            InpApprovalMinutes, memoId, memoId, memoId,
+                                            (InpApprovalDefault ? " (si no respondes, se ejecuta)" : " (si no respondes, se descarta)"));
+   string memo  = BuildMemo(idx, sig, lots, regime, entry, volRatio, rrP, zona, memoId, estado);
+   string corto = StringFormat("%s %s %s | %s %s | SL %s | %s",
+                  memoId, (sig.dir == SIGNAL_BUY ? "COMPRA" : "VENTA"), symbol,
+                  StarsFromScore(sig.score), ConfidenceLabel(sig.score),
+                  DoubleToString(sig.sl_price, dg),
+                  (mode == 0 ? "ejecutando" : mode == 2 ? "watchlist" : "esperando APROBAR"));
+   g_notifier.Memo(memo, corto);
+
+   if(mode == 2)
+      return true;
+   if(mode == 1)
+     {
+      if(g_pendActive)
+        {
+         g_notifier.Notify(memoId + ": ya hay una decision pendiente (" + g_pendId + "); esta se descarta.");
+         return true;
+        }
+      g_pendActive       = true;
+      g_pendIdx          = idx;
+      g_pendSig          = sig;
+      g_pendEntry        = entry;
+      g_pendId           = memoId;
+      g_pendSince        = TimeCurrent();
+      g_pendFromSmc      = fromSmc;
+      g_pendFromCrt      = fromCrt;
+      g_pendFromBreakout = fromBreakout;
+      return true;
+     }
 
    //--- Ejecutar
    if(g_trade.Open(symbol, sig, lots))
@@ -1005,6 +1082,255 @@ void EvaluateRev(const int idx)
       g_risk.RegisterScalpOpen(symbol);
       g_lastRevOpen[idx] = TimeCurrent();
      }
+  }
+
+//+------------------------------------------------------------------+
+//| MEMO DE DECISION FINAL (esquema, lamina 7): resumen del setup,    |
+//| fuerza de la senal, nivel de riesgo, plan de trading y estado.    |
+//+------------------------------------------------------------------+
+string BuildMemo(const int idx, const SSignal &sig, const double lots, const ERegime regime,
+                 const double entry, const double volRatio, const double rrP,
+                 const string zona, const string memoId, const string estado)
+  {
+   string symbol = g_symbols[idx];
+   int    dg     = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+   string lado   = (sig.dir == SIGNAL_BUY ? "COMPRA" : "VENTA");
+   string alineacion = "NEUTRO (sin tendencia definida)";
+   if((regime == REGIME_TREND_UP && sig.dir == SIGNAL_BUY) || (regime == REGIME_TREND_DOWN && sig.dir == SIGNAL_SELL))
+      alineacion = "SI (a favor de la tendencia H1)";
+   else if(regime == REGIME_TREND_UP || regime == REGIME_TREND_DOWN)
+      alineacion = "NO (contra la tendencia H1)";
+   double equity    = AccountInfoDouble(ACCOUNT_EQUITY);
+   double riskMoney = equity * InpRiskPct / 100.0;
+
+   string m = "MEMO DE DECISION FINAL  " + memoId + "  " + TimeToString(TimeTradeServer(), TIME_DATE | TIME_MINUTES) + "\n";
+   m += StringFormat("1. SETUP - %s %s · %s %s\n   Alineacion de tendencia: %s · Mercado: %s · Sesion: %s\n",
+                     symbol, lado, SetupTypeToString(sig.setup), sig.timeframe,
+                     alineacion, RegimeToString(regime), g_session[idx].ZoneName());
+   m += StringFormat("2. FUERZA DE LA SENAL - %s %s (%s)\n   %s\n",
+                     StarsFromScore(sig.score),
+                     (sig.score >= 0 ? IntegerToString(sig.score) + "/100" : "sin puntuar"),
+                     ConfidenceLabel(sig.score), sig.reason);
+   m += StringFormat("3. RIESGO - %s (%.1f%% = %.2f USD) · perdida max dentro del plan: SI\n   exposicion %.1f%%/%.1f%% · DD %.1f%%/%.0f%% · dia %+.2f%% · volatilidad x%.2f\n",
+                     RiskLevelLabel(InpRiskPct), InpRiskPct, riskMoney,
+                     g_risk.OpenRiskPct(), InpMaxTotalRiskPct,
+                     g_risk.DrawdownFromPeakPct(), InpMaxDrawdownPct, g_risk.DayPnLPct(), volRatio);
+   m += StringFormat("4. PLAN - entrada %s · SL %s · TP %s · invalida %s · R:B 1:%.1f · zona %s · %.2f lotes\n",
+                     DoubleToString(entry, dg), DoubleToString(sig.sl_price, dg),
+                     (sig.tp_price > 0.0 ? DoubleToString(sig.tp_price, dg) : "gestion (parcial+trailing)"),
+                     (sig.invalidation > 0.0 ? DoubleToString(sig.invalidation, dg) + " (cierre)" : "= SL"),
+                     rrP, zona, lots);
+   m += "5. ESTADO - " + estado;
+   return m;
+  }
+
+void ClearPending()
+  {
+   g_pendActive = false;
+   g_pendIdx    = -1;
+   g_pendId     = "";
+   g_pendEntry  = 0.0;
+  }
+
+//+------------------------------------------------------------------+
+//| Ejecuta la decision pendiente RE-VALIDANDO: mientras esperabamos  |
+//| pudo cerrar la sesion, subir el spread, salir una noticia o       |
+//| moverse el precio. Nada de eso se asume.                          |
+//+------------------------------------------------------------------+
+void ExecutePending(const string why)
+  {
+   if(!g_pendActive)
+      return;
+   int    idx    = g_pendIdx;
+   string symbol = g_symbols[idx];
+   string id     = g_pendId;
+   string block  = "";
+
+   if(!g_session[idx].EntryAllowedNow())
+     { g_notifier.Notify(id + ": la sesion cerro mientras esperaba -> DESCARTADA"); ClearPending(); return; }
+   if(!g_session[idx].SpreadOK(symbol))
+     { g_notifier.Notify(id + ": el spread excede el limite ahora -> DESCARTADA"); ClearPending(); return; }
+   if(g_news.IsBlocked())
+     { g_notifier.Notify(id + ": pausa por noticia (" + g_news.BlockingEventName() + ") -> DESCARTADA"); ClearPending(); return; }
+   if(!g_risk.CanOpen(symbol, block))
+     { g_notifier.Notify(id + ": bloqueada por riesgo (" + block + ") -> DESCARTADA"); ClearPending(); return; }
+
+   double entry = (g_pendSig.dir == SIGNAL_BUY ? SymbolInfoDouble(symbol, SYMBOL_ASK)
+                                               : SymbolInfoDouble(symbol, SYMBOL_BID));
+   double riskDist = MathAbs(g_pendEntry - g_pendSig.sl_price);
+   bool   sideOk   = (g_pendSig.dir == SIGNAL_BUY ? entry > g_pendSig.sl_price : entry < g_pendSig.sl_price);
+   double drift    = (g_pendSig.dir == SIGNAL_BUY ? entry - g_pendEntry : g_pendEntry - entry);
+   if(entry <= 0.0 || !sideOk || drift > riskDist)
+     {
+      g_notifier.Notify(StringFormat("%s: el precio se movio %s desde el memo (mas de 1R o paso el SL) -> DESCARTADA",
+                                     id, DoubleToString(MathAbs(entry - g_pendEntry), (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS))));
+      ClearPending();
+      return;
+     }
+   double lots = g_risk.CalcLots(symbol, entry, g_pendSig.sl_price);
+   if(lots <= 0.0)
+     { g_notifier.Notify(id + ": el riesgo ya no alcanza para el lote minimo -> DESCARTADA"); ClearPending(); return; }
+
+   if(g_trade.Open(symbol, g_pendSig, lots))
+     {
+      g_risk.RegisterOpen(symbol);
+      if(g_pendFromBreakout) g_breakout[idx].MarkTraded();
+      if(g_pendFromSmc)      g_smc[idx].MarkTraded();
+      if(g_pendFromCrt)      g_crt[idx].MarkTraded();
+      g_notifier.Notify(id + " EJECUTADA (" + why + ")");
+     }
+   ClearPending();
+  }
+
+//+------------------------------------------------------------------+
+//| Estado del sistema para el comando ESTADO (lamina 6: monitoreo)   |
+//+------------------------------------------------------------------+
+string StatusReport()
+  {
+   string s = StringFormat("ESTADO ATLAS v2.20 %s\nEquity %.2f · dia %+.2f%% · DD desde pico %.1f%% · riesgo abierto %.1f%%\n",
+                           TimeToString(TimeTradeServer(), TIME_DATE | TIME_MINUTES),
+                           AccountInfoDouble(ACCOUNT_EQUITY), g_risk.DayPnLPct(),
+                           g_risk.DrawdownFromPeakPct(), g_risk.OpenRiskPct());
+   if(g_risk.KillSwitchLatched()) s += "KILL SWITCH ACTIVO - el bot no opera\n";
+   else if(g_risk.DailyLossHit()) s += "Limite diario alcanzado - sin entradas hasta manana\n";
+   else if(g_news.IsBlocked())    s += "Pausa por noticia: " + g_news.BlockingEventName() + "\n";
+   for(int i = 0; i < ArraySize(g_symbols); i++)
+     {
+      if(!g_symReady[i]) { s += g_symbols[i] + ": inicializando\n"; continue; }
+      string pos = g_trade.PositionInfo(g_symbols[i]);
+      s += StringFormat("%s: sesion %s %s · %d ops hoy · %s\n", g_symbols[i], g_session[i].ZoneName(),
+                        (g_session[i].EntryAllowedNow() ? "ABIERTA" : "cerrada"),
+                        g_risk.TradesToday(g_symbols[i]), (pos == "" ? "sin posicion" : pos));
+     }
+   if(g_pendActive)
+      s += StringFormat("Decision pendiente: %s (%d min restantes)\n", g_pendId,
+                        (int)MathMax(0, (InpApprovalMinutes * 60 - (TimeCurrent() - g_pendSince)) / 60));
+   string nd = ""; datetime nw = 0;
+   if(g_news.NextHighImpact(nd, nw))
+      s += "Proxima noticia: " + nd + " @ " + TimeToString(nw, TIME_DATE | TIME_MINUTES);
+   return s;
+  }
+
+//+------------------------------------------------------------------+
+//| Comandos del dueno por Telegram                                    |
+//+------------------------------------------------------------------+
+void HandleCommand(const string raw)
+  {
+   string text = raw;
+   StringTrimLeft(text);
+   StringTrimRight(text);
+   StringToUpper(text);
+   string parts[];
+   int n = StringSplit(text, ' ', parts);
+   if(n < 1)
+      return;
+   string cmd = parts[0];
+   string id  = (n >= 2 ? parts[1] : "");
+   bool   matches = (g_pendActive && (id == "" || id == g_pendId));
+
+   if(cmd == "ESTADO" || cmd == "STATUS")
+     { g_telegram.Send(StatusReport()); return; }
+   if(cmd == "APROBAR" || cmd == "APROBADO" || cmd == "OK" || cmd == "SI")
+     {
+      if(matches) ExecutePending("aprobada por el dueno");
+      else g_telegram.Send(g_pendActive ? "Hay una decision pendiente pero el ID no coincide: " + g_pendId : "No hay ninguna decision pendiente.");
+      return;
+     }
+   if(cmd == "RECHAZAR" || cmd == "RECHAZADO" || cmd == "NO")
+     {
+      if(matches) { g_notifier.Notify(g_pendId + " RECHAZADA por el dueno -> no se opera"); ClearPending(); }
+      else g_telegram.Send("No hay ninguna decision pendiente con ese ID.");
+      return;
+     }
+   if(cmd == "WATCH" || cmd == "WATCHLIST" || cmd == "OBSERVAR")
+     {
+      if(matches) { g_notifier.Notify(g_pendId + " a WATCHLIST: no se opera; si el setup sigue vivo volvera a aparecer"); ClearPending(); }
+      else g_telegram.Send("No hay ninguna decision pendiente con ese ID.");
+      return;
+     }
+   g_telegram.Send("Comandos: ESTADO · APROBAR <id> · RECHAZAR <id> · WATCH <id>");
+  }
+
+//+------------------------------------------------------------------+
+//| Decisiones: vencimiento del plazo y lectura de respuestas.        |
+//| Telegram se consulta cada 10 s con decision pendiente y cada 60 s |
+//| si no (para responder ESTADO). WebRequest es sincrono: el timeout |
+//| corto evita que el ciclo se quede colgado.                        |
+//+------------------------------------------------------------------+
+void HandleDecisions()
+  {
+   datetime now = TimeCurrent();
+   if(g_pendActive && now - g_pendSince >= InpApprovalMinutes * 60)
+     {
+      if(InpApprovalDefault)
+         ExecutePending("vencio el plazo; default = ejecutar");
+      else
+        {
+         g_notifier.Notify(g_pendId + ": vencio el plazo sin respuesta -> DESCARTADA");
+         ClearPending();
+        }
+     }
+   if(!g_telegram.Enabled())
+      return;
+   int every = (g_pendActive ? 10 : 60);
+   if(now - g_lastTgPoll < every)
+      return;
+   g_lastTgPoll = now;
+   string cmds[];
+   int n = g_telegram.Poll(cmds);
+   for(int i = 0; i < n; i++)
+      HandleCommand(cmds[i]);
+  }
+
+//+------------------------------------------------------------------+
+//| Alertas 24/7 (lamina 6): apertura/cierre de la sesion de cada     |
+//| simbolo y limite diario. El primer ciclo solo fija el estado.     |
+//+------------------------------------------------------------------+
+void StatusAlerts()
+  {
+   if(!InpStatusAlerts)
+      return;
+   for(int i = 0; i < ArraySize(g_symbols); i++)
+     {
+      if(!g_symReady[i])
+         continue;
+      int open = (g_session[i].EntryAllowedNow() ? 1 : 0);
+      if(g_sessState[i] == -1)
+        { g_sessState[i] = open; continue; }
+      if(open != g_sessState[i])
+        {
+         g_sessState[i] = open;
+         g_notifier.Notify(StringFormat("Sesion %s %s para %s", g_session[i].ZoneName(),
+                                        (open == 1 ? "ABIERTA" : "CERRADA"), g_symbols[i]));
+        }
+     }
+   if(g_risk.DailyLossHit() && !g_dailyLossNotified)
+     {
+      g_dailyLossNotified = true;
+      g_notifier.Notify(StringFormat("LIMITE DIARIO alcanzado (%+.2f%%): sin entradas nuevas hasta manana", g_risk.DayPnLPct()));
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Resumen del dia que termina, ANTES de que el riesgo haga rollover |
+//+------------------------------------------------------------------+
+void DailySummaryIfNewDay()
+  {
+   datetime today = DateOf(TimeTradeServer());
+   if(g_lastDay == 0)
+     { g_lastDay = today; return; }
+   if(today == g_lastDay)
+      return;
+   g_lastDay = today;
+   g_dailyLossNotified = false;
+   if(!InpStatusAlerts)
+      return;
+   string ops = "";
+   for(int i = 0; i < ArraySize(g_symbols); i++)
+      ops += StringFormat("%s%s %d", (ops == "" ? "" : " · "), g_symbols[i], g_risk.TradesToday(g_symbols[i]));
+   g_notifier.Notify(StringFormat("RESUMEN DEL DIA: P&L %+.2f%% · equity %.2f · DD desde pico %.1f%% · ops: %s",
+                                  g_risk.DayPnLPct(), AccountInfoDouble(ACCOUNT_EQUITY),
+                                  g_risk.DrawdownFromPeakPct(), ops));
   }
 
 //+------------------------------------------------------------------+

@@ -16,18 +16,21 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parent.parent / "src"
 
 # ---------- utilidades de limpieza ----------
-def sin_comentarios(txt):
-    txt = re.sub(r'/\*.*?\*/', '', txt, flags=re.S)
-    txt = re.sub(r'//[^\n]*', '', txt)
-    return txt
-
-def sin_strings(txt):
-    txt = re.sub(r'"(\\.|[^"\\])*"', '""', txt)
-    txt = re.sub(r"'(\\.|[^'\\])*'", "''", txt)
-    return txt
+# Comentarios y literales se tokenizan en UNA sola pasada, de izquierda a
+# derecha. Hacerlo en dos pasos fallaba de dos formas: una URL con "//" dentro
+# de un string se tomaba por comentario y se comia el resto de la linea, y el
+# literal de caracter '"' rompia el emparejado de comillas. Ambas hacian que
+# un archivo correcto pareciera desbalanceado.
+_TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|//[^\n]*|/\*.*?\*/', re.S)
 
 def limpio(txt):
-    return sin_strings(sin_comentarios(txt))
+    return _TOKEN.sub(lambda m: '""' if m.group(0)[0] in '"\'' else '', txt)
+
+def sin_comentarios(txt):   # compatibilidad: mismo tokenizador
+    return limpio(txt)
+
+def sin_strings(txt):
+    return limpio(txt)
 
 def partir_args(s):
     """Cuenta argumentos de nivel superior en el interior de un parentesis."""

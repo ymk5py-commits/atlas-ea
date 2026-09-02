@@ -82,6 +82,14 @@ emit_if_set() {
   # Esquema v2.1 (nacen apagados; encender solo con evidencia de backtest)
   emit_if_set InpMinScore        ATLAS_MIN_SCORE
   emit_if_set InpVolCheck        ATLAS_VOL_CHECK
+
+  # Decision final + Telegram (v2.2). Sin token: memos al log y push, modo automatico.
+  emit_if_set InpDecisionMode    ATLAS_DECISION_MODE
+  emit_if_set InpApprovalMinutes ATLAS_APPROVAL_MIN
+  emit_if_set InpApprovalDefault ATLAS_APPROVAL_DEFAULT
+  emit_if_set InpTgToken         ATLAS_TG_TOKEN
+  emit_if_set InpTgChatId        ATLAS_TG_CHAT_ID
+  emit_if_set InpStatusAlerts    ATLAS_STATUS_ALERTS
   emit_if_set InpNewYorkSymbols  ATLAS_NY_SYMBOLS
   emit_if_set InpLondonSymbols   ATLAS_LONDON_SYMBOLS
 } > "${PARAMS_DIR}/atlas_params.set"
@@ -125,6 +133,21 @@ fi
   printf 'ExpertParameters=atlas_params.set\r\n'
 } > "$CFG"
 chmod 600 "$CFG"
+
+# WebRequest a Telegram: el terminal solo llama URLs de su lista permitida.
+# Sin GUI, la lista vive en config/common.ini. Si el EA loguea error 4014,
+# la clave de esta seccion no coincide con la de esta version de MT5: hay que
+# habilitar la URL una vez en un MT5 con pantalla (Opciones > Asesores
+# Expertos) y copiar el bloque exacto de su common.ini, o montarlo en
+# /seed-config.
+if [ -n "${ATLAS_TG_TOKEN:-}" ]; then
+   COMMON_INI="${MT5}/config/common.ini"
+   mkdir -p "${MT5}/config"
+   if ! grep -qs "api.telegram.org" "$COMMON_INI"; then
+      printf '\r\n[WebRequest]\r\nUrl0=https://api.telegram.org\r\n' >> "$COMMON_INI"
+      echo "[ATLAS] WebRequest: https://api.telegram.org agregada a config/common.ini"
+   fi
+fi
 
 echo "[ATLAS] Iniciando MetaTrader 5 headless — cuenta ${MT_LOGIN} en ${MT_SERVER}"
 echo "[ATLAS] Riesgo ${ATLAS_RISK}%/op · limite diario ${ATLAS_DAILY_LOSS}% · kill switch ${ATLAS_MAX_DD}%"
