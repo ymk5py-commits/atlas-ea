@@ -323,6 +323,42 @@ void TestLondres()
   }
 
 //+------------------------------------------------------------------+
+//| Plan de trading y confianza (esquema v2.1)                        |
+//+------------------------------------------------------------------+
+void TestPlan()
+  {
+   SSignal s;
+   ResetSignal(s);
+   Assert(s.dir == SIGNAL_NONE && s.score == -1 && s.setup == SETUP_NONE && s.invalidation == 0.0,
+          "plan: ResetSignal deja la senal neutra (sin puntuar, sin setup)");
+
+   Assert(ConfidenceLabel(85) == "ALTA",  "plan: 85 es confianza ALTA");
+   Assert(ConfidenceLabel(70) == "ALTA",  "plan: 70 (borde) es ALTA");
+   Assert(ConfidenceLabel(55) == "MEDIA", "plan: 55 es MEDIA");
+   Assert(ConfidenceLabel(20) == "BAJA",  "plan: 20 es BAJA");
+   Assert(ConfidenceLabel(-1) == "-",     "plan: sin puntuar -> '-'");
+   Assert(ClampScore(130) == 100 && ClampScore(-7) == 0, "plan: la confianza se acota a 0-100");
+   Assert(SetupTypeToString(SETUP_RUPTURA) == "ruptura" && SetupTypeToString(SETUP_REVERSION) == "reversion",
+          "plan: nombres de setup");
+
+   //--- SMC: todo a favor = 100; lo minimo que pasa los filtros = 45
+   Assert(SmcScore(true, true, 3.0, 2, false) == 100, "SMC score: barrido+FVG+desplazamiento 3x+fresco+BOS = 100");
+   Assert(SmcScore(false, false, 1.0, 30, true) == 45, "SMC score: sin extras, viejo, CHoCH = 45");
+   Assert(SmcScore(false, false, 2.0, 5, false) == 64,  "SMC score: desplazamiento 2x (+8) fresco 5 velas (+6) BOS (+10) = 64");
+
+   //--- CRT
+   Assert(CrtScore(3.0, 5.0, true)   == 100, "CRT score: 3R + purga 5% + confirmado = 100");
+   Assert(CrtScore(1.5, 35.0, false) == 50,  "CRT score: 1.5R (+10) purga profunda (0) en vivo (0) = 50");
+   Assert(CrtScore(2.0, 15.0, false) == 70,  "CRT score: 2R (+18) purga 15% (+12) = 70 -> ALTA");
+
+   //--- R:B del plan
+   Assert(MathAbs(PlanRewardRisk(100.0, 96.0, 110.0, 2.0) - 2.5) < 1e-9, "plan: compra riesgo 4 recorrido 10 = 2.5R");
+   Assert(MathAbs(PlanRewardRisk(100.0, 104.0, 92.0, 2.0) - 2.0) < 1e-9, "plan: venta riesgo 4 recorrido 8 = 2R");
+   Assert(MathAbs(PlanRewardRisk(100.0, 96.0, 0.0, 2.0) - 2.0) < 1e-9,   "plan: sin TP fijo informa el R nominal");
+   Assert(PlanRewardRisk(100.0, 100.0, 110.0, 2.0) == 0.0,               "plan: SL pegado al precio -> 0");
+  }
+
+//+------------------------------------------------------------------+
 //| Limite de spread: la misma tolerancia real en cualquier broker    |
 //+------------------------------------------------------------------+
 void TestSpread()
@@ -632,6 +668,7 @@ void OnStart()
    TestTimezone();
    TestLondres();
    TestSpread();
+   TestPlan();
 
    CNotifier notifier;
    notifier.Init(false);

@@ -6,7 +6,7 @@
 //| Validar SIEMPRE en backtest y cuenta demo antes de dinero real.  |
 //+------------------------------------------------------------------+
 #property copyright "ATLAS EA — uso personal"
-#property version   "2.00"
+#property version   "2.10"
 #property strict
 
 #include "include/AtlasTypes.mqh"
@@ -98,6 +98,14 @@ input bool   InpCrtRequireEq     = true;   // Vender solo desde premium / compra
 input bool   InpCrtNeedRejection = true;   // Exigir vela de rechazo en M15
 input bool   InpCrtFollowRegime  = true;   // No operar la purga a contramano de la tendencia H1
 input int    InpCrtTvFilter      = 0;      // Confluencia rating TV: 0=ninguna, 1=solo H1, 2=M15+H1
+
+input group "Plan y confianza (esquema: senal -> plan -> riesgo)"
+// Nacen apagados: la config vigente esta validada por backtest y estos gates
+// entran a la matriz de backtest antes de encenderse (server_backtest.sh).
+input int    InpMinScore         = 0;      // Confianza minima 0-100 para operar (0 = sin filtro; puntuan SMC y CRT)
+input bool   InpVolCheck         = false;  // Check de volatilidad: bloquear si el ATR M15 esta fuera de rango
+input double InpVolMaxRatio      = 2.5;    // Volatilidad max: ATR actual / promedio de 96 velas (pico anormal)
+input double InpVolMinRatio      = 0.35;   // Volatilidad min (mercado muerto)
 
 input group "Sesiones — que simbolo opera en que ventana"
 // Las horas van en la HORA DE CADA PLAZA; el bot convierte solo, con el
@@ -466,7 +474,7 @@ int OnInit()
 
    EventSetTimer(1);
    g_notifier.Log(StringFormat(
-      "ATLAS EA v2.00 iniciado. Simbolos: %s | Riesgo %.1f%%/op | Limite diario %.1f%% | Kill switch %.0f%%",
+      "ATLAS EA v2.10 iniciado. Simbolos: %s | Riesgo %.1f%%/op | Limite diario %.1f%% | Kill switch %.0f%%",
       InpSymbols, InpRiskPct, InpDailyLossPct, InpMaxDrawdownPct));
    //--- Una linea por simbolo: que corre, en que ventana, y esa ventana
    //--- traducida a hora del servidor y a la hora del usuario. Es el
@@ -539,6 +547,33 @@ double AtrM15(const int idx)
    if(CopyBuffer(g_hAtrM15[idx], 0, 1, 1, arr) != 1)
       return 0.0;
    return arr[0];
+  }
+
+//+------------------------------------------------------------------+
+//| Check de volatilidad del esquema: ATR M15 actual contra su        |
+//| promedio de 96 velas (un dia). ratio > max = pico anormal (dato,  |
+//| flash crash), ratio < min = mercado muerto. Devuelve el ratio     |
+//| siempre (para el log); solo bloquea si InpVolCheck esta activo.   |
+//| Sin datos suficientes no bloquea: un gate no puede depender de    |
+//| una carga transitoria de historia.                                |
+//+------------------------------------------------------------------+
+bool VolatilityOK(const int idx, double &ratio)
+  {
+   ratio = 0.0;
+   double arr[];
+   ArraySetAsSeries(arr, true);
+   if(CopyBuffer(g_hAtrM15[idx], 0, 1, 97, arr) != 97 || arr[0] <= 0.0)
+      return true;
+   double sum = 0.0;
+   int    n   = 0;
+   for(int i = 1; i < 97; i++)
+      if(arr[i] > 0.0) { sum += arr[i]; n++; }
+   if(n < 48)
+      return true;
+   ratio = arr[0] / (sum / n);
+   if(!InpVolCheck)
+      return true;
+   return (ratio <= InpVolMaxRatio && ratio >= InpVolMinRatio);
   }
 
 //+------------------------------------------------------------------+
@@ -806,12 +841,50 @@ bool EvaluateSymbol(const int idx)
       return true;
      }
 
+   //--- Confianza minima (solo las estrategias que puntuan: score >= 0)
+   if(sig.score >= 0 && sig.score < InpMinScore)
+     {
+      g_notifier.Log(StringFormat("%s: senal descartada por confianza %d (%s) < minimo %d",
+                                  symbol, sig.score, ConfidenceLabel(sig.score), InpMinScore));
+      return true;
+     }
+
+   //--- Check de volatilidad (modulo de riesgo)
+   double volRatio = 0.0;
+   if(!VolatilityOK(idx, volRatio))
+     {
+      g_notifier.Log(StringFormat("%s: bloqueado por volatilidad — ATR M15 x%.2f de su promedio (rango permitido %.2f-%.2f)",
+                                  symbol, volRatio, InpVolMinRatio, InpVolMaxRatio));
+      return true;
+     }
+
    //--- Sizing por riesgo
    double entry = (sig.dir == SIGNAL_BUY ? SymbolInfoDouble(symbol, SYMBOL_ASK)
                                          : SymbolInfoDouble(symbol, SYMBOL_BID));
    double lots = g_risk.CalcLots(symbol, entry, sig.sl_price);
    if(lots <= 0.0)
       return true;
+
+   //--- PLAN DE TRADING (esquema: entrada, objetivo, stop, invalidacion,
+   //--- R:B, confianza) + los 5 checks de riesgo ya superados. El plan va
+   //--- al celular; el detalle de riesgo, al log.
+   int    dg   = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+   double rrP  = PlanRewardRisk(entry, sig.sl_price, sig.tp_price, InpRR);
+   string zona = (sig.zone_hi > sig.zone_lo && sig.zone_lo > 0.0
+                  ? DoubleToString(sig.zone_lo, dg) + "-" + DoubleToString(sig.zone_hi, dg)
+                  : "a mercado");
+   g_notifier.Notify(StringFormat("PLAN %s %s | %s %s | zona %s | SL %s | TP %s | invalida %s | R:B 1:%.1f | confianza %s",
+                     (sig.dir == SIGNAL_BUY ? "COMPRA" : "VENTA"), symbol,
+                     SetupTypeToString(sig.setup), sig.timeframe, zona,
+                     DoubleToString(sig.sl_price, dg),
+                     (sig.tp_price > 0.0 ? DoubleToString(sig.tp_price, dg) : "gestion (parcial+trailing)"),
+                     (sig.invalidation > 0.0 ? DoubleToString(sig.invalidation, dg) : "= SL"),
+                     rrP, (sig.score >= 0 ? StringFormat("%d %s", sig.score, ConfidenceLabel(sig.score)) : "n/d")));
+   g_notifier.Log(StringFormat("RIESGO %s: tamano %.2f lot OK · exposicion %.1f%%/%.1f%% OK · drawdown %.1f%%/%.0f%% OK · volatilidad x%.2f %s · perdida diaria %+.2f%%/-%.1f%% OK -> PASA",
+                  symbol, lots, g_risk.OpenRiskPct(), InpMaxTotalRiskPct,
+                  g_risk.DrawdownFromPeakPct(), InpMaxDrawdownPct,
+                  volRatio, (InpVolCheck ? "OK" : "(sin check)"),
+                  g_risk.DayPnLPct(), InpDailyLossPct));
 
    //--- Ejecutar
    if(g_trade.Open(symbol, sig, lots))

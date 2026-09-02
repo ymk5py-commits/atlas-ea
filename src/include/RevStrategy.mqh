@@ -98,10 +98,7 @@ public:
    SSignal Check()
      {
       SSignal sig;
-      sig.dir      = SIGNAL_NONE;
-      sig.sl_price = 0.0;
-      sig.tp_price = 0.0;
-      sig.reason   = "";
+      ResetSignal(sig);
 
       double rsi = 0.0, atr = 0.0;
       if(!CopyOne(m_hRsi7, rsi) || !CopyOne(m_hAtr, atr) || atr <= 0.0)
@@ -166,6 +163,8 @@ public:
             return sig;
            }
          sig.dir      = SIGNAL_BUY;
+         sig.setup    = SETUP_REVERSION;
+         sig.timeframe = "M1";
          sig.sl_price = sl;
          sig.tp_price = tp;
          sig.reason   = StringFormat("Reversion COMPRA tras bajada de %.1f ATR (RSI7 %.0f)",
@@ -198,6 +197,8 @@ public:
             return sig;
            }
          sig.dir      = SIGNAL_SELL;
+         sig.setup    = SETUP_REVERSION;
+         sig.timeframe = "M1";
          sig.sl_price = sl;
          sig.tp_price = tp;
          sig.reason   = StringFormat("Reversion VENTA tras subida de %.1f ATR (RSI7 %.0f)",

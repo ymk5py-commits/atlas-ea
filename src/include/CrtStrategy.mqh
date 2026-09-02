@@ -63,6 +63,26 @@ double CrtRewardRisk(const double entry, const double sl, const double tp)
   }
 
 //+------------------------------------------------------------------+
+//| Confianza 0-100 de un setup CRT. Base 40 y suma:                  |
+//|   +25/18/10 recorrido al objetivo (>=3R / >=2R / >=1.5R)          |
+//|   +20/12/6  purga somera (<=10% / <=20% / <=30% del rango): mas   |
+//|             somera = mas parecida a un barrido limpio             |
+//|   +15       modo confirmado (la vela de purga ya cerro adentro)   |
+//+------------------------------------------------------------------+
+int CrtScore(const double rr, const double purgePct, const bool confirmed)
+  {
+   int score = 40;
+   if(rr >= 3.0)        score += 25;
+   else if(rr >= 2.0)   score += 18;
+   else if(rr >= 1.5)   score += 10;
+   if(purgePct <= 10.0)      score += 20;
+   else if(purgePct <= 20.0) score += 12;
+   else if(purgePct <= 30.0) score += 6;
+   if(confirmed) score += 15;
+   return ClampScore(score);
+  }
+
+//+------------------------------------------------------------------+
 class CCrtStrategy
   {
 private:
@@ -153,10 +173,7 @@ public:
    SSignal Check(const ERegime regime)
      {
       SSignal sig;
-      sig.dir        = SIGNAL_NONE;
-      sig.sl_price   = 0.0;
-      sig.tp_price   = 0.0;
-      sig.reason     = "";
+      ResetSignal(sig);
       m_pendingRange = 0;
 
       //--- 1) El rango: C1
@@ -321,10 +338,17 @@ public:
       sig.sl_price   = sl;
       sig.tp_price   = tp;                 // el TradeManager lo respeta como TP fijo
       sig.reason     = (dir == SIGNAL_SELL ? "CRT purga del maximo" : "CRT purga del minimo");
+
+      //--- Plan de trading
+      sig.invalidation = (dir == SIGNAL_SELL ? purgeHigh : purgeLow);   // cierre mas alla = idea muerta
+      sig.setup        = SETUP_REVERSION;
+      sig.timeframe    = StringSubstr(EnumToString(m_tf), 7);           // "PERIOD_H4" -> "H4"
+      sig.score        = CrtScore(rr, 100.0 * purgeDepth / rangeSize, (m_mode == 1));
+
       m_pendingRange = rangeTime;
-      m_lastNote     = StringFormat("SENAL %s — %s (%.1fR al extremo opuesto)",
+      m_lastNote     = StringFormat("SENAL %s — %s (%.1fR al extremo opuesto) | confianza %d (%s)",
                                     (dir == SIGNAL_SELL ? "VENTA" : "COMPRA"),
-                                    sig.reason, rr);
+                                    sig.reason, rr, sig.score, ConfidenceLabel(sig.score));
       return sig;
      }
   };

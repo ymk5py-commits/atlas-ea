@@ -74,6 +74,43 @@ CRT es la única que fija su propio objetivo (el extremo opuesto del rango) en v
 dejar la salida al parcial + trailing; el break-even, el cierre parcial y el trailing
 siguen funcionando igual sobre esa posición.
 
+## El esquema del bot: escáner → señales → plan → riesgo → 24/7
+
+El bot sigue el pipeline clásico de un trader sistemático. Así se mapea cada módulo
+del esquema al código:
+
+| Módulo | Qué hace | Dónde vive |
+|---|---|---|
+| **1. Escáner de mercado** | Recorre la cartera al cierre de cada M15: régimen (ADX H1 / compresión Bollinger), sesión de cada plaza, spread, noticias de alto impacto | `RegimeDetector`, `SessionFilter`, `NewsFilter` |
+| **2. Motor de señales** | Detecta y **puntúa** setups: continuación/reversión (SMC), reversión por purga (CRT), ruptura, pullback, momentum, regresión M1 | `*Strategy.mqh` — `SmcScore()` / `CrtScore()` |
+| **3. Planificador** | Cada señal es un plan completo: zona de entrada, objetivo, stop, **nivel de invalidación**, tipo de setup, temporalidad, R:B y **confianza 0–100** | `SSignal` en `AtlasTypes.mqh` |
+| **4. Módulo de riesgo** | Cinco checks: tamaño de posición, exposición total, drawdown, **volatilidad**, pérdida diaria → PASA / BLOQUEA | `RiskManager` + `VolatilityOK()` |
+| **5. Monitor 24/7** | Contenedor Docker con reinicio automático, health check, log de cada decisión | `docker/`, `Atlas_Health` |
+
+**Qué agregó la v2.10 (el esquema completo):**
+
+- **Confianza por señal.** SMC y CRT puntúan cada setup con sus propios componentes
+  (barrido de liquidez, zona refinada con FVG, fuerza del desplazamiento, frescura del
+  quiebre; recorrido al objetivo y profundidad de la purga). ALTA ≥ 70 · MEDIA ≥ 45 ·
+  BAJA < 45. `InpMinScore` descarta las que no llegan (default **0 = sin filtro**).
+- **Check de volatilidad.** ATR M15 contra su promedio de un día: bloquea picos anormales
+  (dato, flash crash) y mercados muertos. `InpVolCheck` (default **false**).
+- **Plan de trading al celular.** Antes de cada entrada llega un push con el plan entero:
+  `PLAN COMPRA XAUUSD | continuacion M15 | zona 2401.20-2403.50 | SL 2398.00 | TP gestion |
+  invalida 2401.20 | R:B 1:2.0 | confianza 78 ALTA`. Y al log va la línea de los cinco
+  checks de riesgo con sus números.
+
+Los dos gates nuevos **nacen apagados a propósito**: la configuración vigente está
+validada por backtest (+45%), y un filtro que suena bien puede restar. Por eso entraron
+a la matriz de `server_backtest.sh` (`oro_smc_conf60`, `oro_smc_vol`): se encienden con
+`ATLAS_MIN_SCORE` / `ATLAS_VOL_CHECK` en el `.env` **solo si el backtest dice que suman**.
+
+**Lo que el esquema muestra y acá no va, a propósito:** ninguna IA generativa decide
+operaciones en vivo (no se puede backtestear y no es reproducible — el modelo ayuda a
+construir y analizar, el EA ejecuta reglas); nada de datos *on-chain* (esto es forex y
+metales); y no hay filtro por "volumen" porque en forex el volumen real no existe, solo
+ticks del bróker, que no miden nada comparable.
+
 ## Las ventanas se definen en la hora de cada plaza
 
 El bot **no** usa la hora de tu computadora ni la del bróker para decidir las sesiones:
