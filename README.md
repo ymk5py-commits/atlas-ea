@@ -111,6 +111,55 @@ construir y analizar, el EA ejecuta reglas); nada de datos *on-chain* (esto es f
 metales); y no hay filtro por "volumen" porque en forex el volumen real no existe, solo
 ticks del bróker, que no miden nada comparable.
 
+## Decisión final y revisión humana (Telegram)
+
+Cada señal que pasa el módulo de riesgo genera un **memo de decisión final** con los
+cinco bloques del esquema: resumen del setup (alineación de tendencia, condición del
+mercado, temporalidad), fuerza de la señal (★★★★☆ y puntaje), nivel de riesgo, plan
+de trading (entrada, SL, TP, invalidación, R:B) y estado final. El memo va al log, al
+push de MT5 (versión corta) y a **Telegram** (completo).
+
+Tres modos, con `InpDecisionMode` / `ATLAS_DECISION_MODE`:
+
+| Modo | Qué hace | Cuándo usarlo |
+|---|---|---|
+| **0 · AUTOMÁTICO** (default) | El memo es informativo; el bot ejecuta | Lo validado por backtest. La mitad de las señales del oro llegan mientras dormís |
+| **1 · CONFIRMAR** | Manda el memo y espera tu respuesta N minutos (`ATLAS_APPROVAL_MIN`, 15). Si no respondés: descarta (o ejecuta, con `ATLAS_APPROVAL_DEFAULT=true`) | Cuando estás mirando y querés la última palabra |
+| **2 · WATCHLIST** | Solo memos, nunca opera | Para observar una configuración nueva en vivo sin arriesgar |
+
+Respondés en Telegram con `APROBAR FD-260825-001`, `RECHAZAR FD-…` o `WATCH FD-…`
+(el ID viene en el memo; sin ID aplica a la decisión pendiente). Antes de ejecutar una
+aprobación el bot **re-valida todo**: sesión, spread, noticias, riesgo, y que el precio
+no se haya movido más de 1R desde el memo. `ESTADO` responde en cualquier momento con
+equity, P&L del día, drawdown, sesiones abiertas, posiciones y próxima noticia.
+
+**Alertas 24/7** (`ATLAS_STATUS_ALERTS`, default true): sesión abierta/cerrada por
+símbolo, límite diario alcanzado, y un resumen al cierre de cada día.
+
+### Configurar Telegram (una vez)
+
+1. En Telegram, hablale a **@BotFather** → `/newbot` → copiá el **token**.
+2. Escribile cualquier cosa a tu bot nuevo, y pedile tu **chat id** a **@userinfobot**
+   (o abrí `https://api.telegram.org/bot<TOKEN>/getUpdates` y leé `"chat":{"id":…}`).
+3. En `~/atlas-ea/.env` del servidor:
+   ```
+   ATLAS_TG_TOKEN=123456:ABC-DEF...
+   ATLAS_TG_CHAT_ID=555555555
+   ATLAS_DECISION_MODE=0
+   ```
+4. `bash ~/atlas-ea/docker/update_atlas.sh`. Al arrancar, el bot te saluda por Telegram.
+
+**Solo tu chat puede aprobar**: los mensajes de cualquier otro id se ignoran. Y los
+mensajes acumulados antes de arrancar se descartan — un `APROBAR` viejo no puede
+ejecutar una operación de hoy.
+
+MetaTrader solo llama a URLs de su lista permitida. El entrypoint agrega
+`https://api.telegram.org` a `config/common.ini` del contenedor. Si en el log aparece
+**`error 4014`**, la clave de esa sección no coincide con tu versión de MT5: habilitá
+la URL una vez en un MT5 con pantalla (Opciones → Asesores Expertos → Permitir
+WebRequest), copiá el bloque exacto de su `common.ini`, o montá su carpeta `config` en
+`/seed-config`. Mientras tanto el bot sigue operando en AUTOMÁTICO sin Telegram.
+
 ## Las ventanas se definen en la hora de cada plaza
 
 El bot **no** usa la hora de tu computadora ni la del bróker para decidir las sesiones:

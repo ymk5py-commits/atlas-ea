@@ -359,6 +359,40 @@ void TestPlan()
   }
 
 //+------------------------------------------------------------------+
+//| Decision final: memo, Telegram (parser y encoding) — sin red      |
+//+------------------------------------------------------------------+
+void TestDecision()
+  {
+   Assert(StarsFromScore(78)  == "★★★★☆", "memo: 78 -> cuatro estrellas");
+   Assert(StarsFromScore(100) == "★★★★★", "memo: 100 -> cinco estrellas");
+   Assert(StarsFromScore(45)  == "★★☆☆☆", "memo: 45 -> dos estrellas");
+   Assert(StarsFromScore(-1)  == "n/d",   "memo: sin puntuar -> n/d");
+   Assert(RiskLevelLabel(1.0) == "BAJO" && RiskLevelLabel(1.5) == "MODERADO" && RiskLevelLabel(2.0) == "ALTO",
+          "memo: nivel de riesgo por % de la cuenta");
+   Assert(MemoId(StringToTime("2026.08.25 10:01"), 7) == "FD-260825-007", "memo: id FD-aammdd-NNN");
+
+   Assert(UrlEncode("hola mundo&x=1") == "hola%20mundo%26x%3D1", "telegram: url-encode de espacio, & e =");
+   Assert(UrlEncode("abc-_.~09") == "abc-_.~09",                "telegram: caracteres seguros no se tocan");
+   Assert(UrlEncode("ñ") == "%C3%B1",                           "telegram: UTF-8 byte a byte");
+
+   //--- Respuesta real de getUpdates (compacta): dos mensajes del chat 555 y
+   //--- uno de un intruso (999) que debe ignorarse.
+   string json = "{\"ok\":true,\"result\":[{\"update_id\":100,\"message\":{\"message_id\":1,\"from\":{\"id\":555,\"is_bot\":false},"
+                 "\"chat\":{\"id\":555,\"type\":\"private\"},\"date\":1,\"text\":\"APROBAR FD-260825-001\"}},"
+                 "{\"update_id\":101,\"message\":{\"chat\":{\"id\":999,\"type\":\"private\"},\"text\":\"APROBAR FD-260825-001\"}},"
+                 "{\"update_id\":102,\"message\":{\"chat\":{\"id\":555,\"type\":\"private\"},\"text\":\"ESTADO\"}}]}";
+   string texts[];
+   long   maxId = -1;
+   int n = TgExtractCommands(json, 555, texts, maxId);
+   Assert(n == 2, "telegram: extrae solo los mensajes del chat autorizado (2 de 3)");
+   Assert(n == 2 && texts[0] == "APROBAR FD-260825-001", "telegram: primer comando intacto");
+   Assert(n == 2 && texts[1] == "ESTADO",                "telegram: segundo comando intacto");
+   Assert(maxId == 102, "telegram: recuerda el mayor update_id para no releer");
+   Assert(TgExtractCommands("{\"ok\":true,\"result\":[]}", 555, texts, maxId) == 0 && maxId == -1,
+          "telegram: sin mensajes -> 0 y sin update_id");
+  }
+
+//+------------------------------------------------------------------+
 //| Limite de spread: la misma tolerancia real en cualquier broker    |
 //+------------------------------------------------------------------+
 void TestSpread()
@@ -669,6 +703,7 @@ void OnStart()
    TestLondres();
    TestSpread();
    TestPlan();
+   TestDecision();
 
    CNotifier notifier;
    notifier.Init(false);

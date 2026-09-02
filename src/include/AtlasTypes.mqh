@@ -109,6 +109,36 @@ string SetupTypeToString(const ESetupType t)
    return "sin clasificar";
   }
 
+//--- Puntaje en estrellas para el memo (0-100 -> 0-5)
+string StarsFromScore(const int score)
+  {
+   if(score < 0)
+      return "n/d";
+   int full = (int)MathRound(score / 20.0);
+   if(full < 0) full = 0;
+   if(full > 5) full = 5;
+   string s = "";
+   for(int i = 0; i < 5; i++)
+      s += (i < full ? "★" : "☆");
+   return s;
+  }
+
+//--- Nivel de riesgo del memo segun el % de la cuenta que arriesga la operacion
+string RiskLevelLabel(const double riskPct)
+  {
+   if(riskPct <= 1.0) return "BAJO";
+   if(riskPct <= 1.5) return "MODERADO";
+   return "ALTO";
+  }
+
+//--- Identificador del memo: FD-aammdd-NNN
+string MemoId(const datetime t, const int seq)
+  {
+   MqlDateTime d;
+   TimeToStruct(t, d);
+   return StringFormat("FD-%02d%02d%02d-%03d", d.year % 100, d.mon, d.day, seq);
+  }
+
 //--- Beneficio/riesgo del plan. Con objetivo fijo se mide contra el; sin
 //--- objetivo (gestion por parcial + trailing) se informa el R nominal.
 double PlanRewardRisk(const double entry, const double sl, const double tp, const double nominalRR)
