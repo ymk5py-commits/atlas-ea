@@ -127,11 +127,12 @@ Tres modos, con `InpDecisionMode` / `ATLAS_DECISION_MODE`:
 | **1 · CONFIRMAR** | Manda el memo y espera tu respuesta N minutos (`ATLAS_APPROVAL_MIN`, 15). Si no respondés: descarta (o ejecuta, con `ATLAS_APPROVAL_DEFAULT=true`) | Cuando estás mirando y querés la última palabra |
 | **2 · WATCHLIST** | Solo memos, nunca opera | Para observar una configuración nueva en vivo sin arriesgar |
 
-Respondés en Telegram con `APROBAR FD-260825-001`, `RECHAZAR FD-…` o `WATCH FD-…`
-(el ID viene en el memo; sin ID aplica a la decisión pendiente). Antes de ejecutar una
-aprobación el bot **re-valida todo**: sesión, spread, noticias, riesgo, y que el precio
-no se haya movido más de 1R desde el memo. `ESTADO` responde en cualquier momento con
-equity, P&L del día, drawdown, sesiones abiertas, posiciones y próxima noticia.
+Respondés en Telegram con `APROBAR FD-260825-001`, `RECHAZAR FD-…` o `WATCH FD-…`,
+como mensaje nuevo o respondiendo al memo (el ID viene en el memo; sin ID aplica a la
+decisión pendiente). Antes de ejecutar una aprobación el bot **re-valida todo**:
+sesión, spread, noticias, riesgo, y que el precio no se haya movido más de 1R desde el
+memo. `ESTADO` responde en cualquier momento, también el fin de semana, con equity, P&L
+del día, drawdown, sesiones abiertas, posiciones y próxima noticia.
 
 **Alertas 24/7** (`ATLAS_STATUS_ALERTS`, default true): sesión abierta/cerrada por
 símbolo, límite diario alcanzado, y un resumen al cierre de cada día.
@@ -152,6 +153,12 @@ símbolo, límite diario alcanzado, y un resumen al cierre de cada día.
 **Solo tu chat puede aprobar**: los mensajes de cualquier otro id se ignoran. Y los
 mensajes acumulados antes de arrancar se descartan — un `APROBAR` viejo no puede
 ejecutar una operación de hoy.
+
+**Un bot de Telegram por cuenta.** Si corrés varias cuentas
+([`docs/INSTRUCTIVO_MULTICUENTA.md`](docs/INSTRUCTIVO_MULTICUENTA.md)), creá un bot
+distinto en @BotFather para cada una. Con el mismo token, los EAs leen el mismo chat y
+se roban los mensajes: un `APROBAR` lo puede agarrar la cuenta equivocada, y los IDs
+de los memos se repiten entre cuentas. El chat id sí es el mismo en todas: el tuyo.
 
 MetaTrader solo llama a URLs de su lista permitida. El entrypoint agrega
 `https://api.telegram.org` a `config/common.ini` del contenedor. Si en el log aparece
@@ -550,7 +557,7 @@ dentro del build de la imagen** (el build falla si MetaEditor reporta un error e
 cualquiera de ellas — en ese caso el bot viejo sigue corriendo intacto) y relanza el
 contenedor con el mismo `.env`.
 
-Al final tiene que aparecer en el log `ATLAS EA v2.00 iniciado` y **una línea por
+Al final tiene que aparecer en el log `ATLAS EA v2.21 iniciado` y **una línea por
 símbolo** con sus estrategias y su sesión traducida a hora del servidor y a la tuya.
 Leelas: es el único lugar donde se ve qué está corriendo de verdad.
 

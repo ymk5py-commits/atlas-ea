@@ -390,6 +390,25 @@ void TestDecision()
    Assert(maxId == 102, "telegram: recuerda el mayor update_id para no releer");
    Assert(TgExtractCommands("{\"ok\":true,\"result\":[]}", 555, texts, maxId) == 0 && maxId == -1,
           "telegram: sin mensajes -> 0 y sin update_id");
+
+   //--- RESPONDER al memo: Telegram manda el memo citado (reply_to_message,
+   //--- con su propio "chat" y su propio "text") y la cita ANTES que el
+   //--- texto del dueno. Se tiene que leer el APROBAR, no el memo.
+   string reply = "{\"ok\":true,\"result\":[{\"update_id\":200,\"message\":{\"message_id\":43,\"from\":{\"id\":555,\"is_bot\":false},"
+                  "\"chat\":{\"id\":555,\"type\":\"private\"},\"date\":2,"
+                  "\"reply_to_message\":{\"message_id\":42,\"from\":{\"id\":777,\"is_bot\":true},"
+                  "\"chat\":{\"id\":555,\"type\":\"private\"},\"date\":1,\"text\":\"MEMO DE DECISION FINAL  FD-260902-001 {\\\"x\\\"}\"},"
+                  "\"quote\":{\"text\":\"FD-260902-001\",\"position\":24},\"text\":\"APROBAR\"}}]}";
+   n = TgExtractCommands(reply, 555, texts, maxId);
+   Assert(n == 1 && texts[0] == "APROBAR", "telegram: respuesta a un memo -> se lee el APROBAR, no el memo citado");
+
+   //--- El id del chat se compara ENTERO (antes el 5551234 pasaba por el 555)
+   string prefijo = "{\"ok\":true,\"result\":[{\"update_id\":300,\"message\":{\"chat\":{\"id\":5551234,\"type\":\"private\"},\"text\":\"APROBAR\"}}]}";
+   Assert(TgExtractCommands(prefijo, 555, texts, maxId) == 0 && maxId == 300,
+          "telegram: un chat cuyo id EMPIEZA como el autorizado se ignora");
+   string grupo = "{\"ok\":true,\"result\":[{\"update_id\":400,\"message\":{\"chat\":{\"id\":-100123,\"type\":\"group\"},\"text\":\"ESTADO\"}}]}";
+   Assert(TgExtractCommands(grupo, -100123, texts, maxId) == 1 && TgExtractCommands(grupo, -10012, texts, maxId) == 0,
+          "telegram: id de grupo (negativo) tambien exacto");
   }
 
 //+------------------------------------------------------------------+

@@ -32,17 +32,137 @@ string UrlEncode(const string text)
   }
 
 //+------------------------------------------------------------------+
+//| Lectura minima del JSON de getUpdates. Telegram devuelve JSON     |
+//| compacto y por update solo hacen falta tres datos: "update_id",   |
+//| el id del chat y el texto. No hace falta un parser completo, pero |
+//| SI respetar los niveles: al RESPONDER a un memo, Telegram manda   |
+//| el memo citado (reply_to_message, con su propio "chat" y su       |
+//| propio "text") ANTES que el texto del dueno. Quedarse con el      |
+//| primer "text" que apareciera devolvia el memo y el APROBAR se     |
+//| perdia.                                                           |
+//+------------------------------------------------------------------+
+
+//--- Substring sin pasarle a StringSubstr un largo <= 0
+string TgJsonSub(const string &s, const int start, const int len)
+  {
+   return (len > 0 ? StringSubstr(s, start, len) : "");
+  }
+
+//--- Indice de la comilla que cierra el string que abre en 'open' (el
+//--- largo del texto si no cierra). Un caracter escapado (\" o \\) no cierra.
+int TgJsonStringEnd(const string &s, const int open)
+  {
+   int n = StringLen(s);
+   for(int i = open + 1; i < n; i++)
+     {
+      ushort c = StringGetCharacter(s, i);
+      if(c == '\\')
+         i++;
+      else if(c == '"')
+         return i;
+     }
+   return n;
+  }
+
+//--- Primer caracter no blanco a partir de 'from'
+int TgJsonSkipBlank(const string &s, const int from)
+  {
+   int n = StringLen(s);
+   int i = from;
+   while(i < n)
+     {
+      ushort c = StringGetCharacter(s, i);
+      if(c != ' ' && c != '\t' && c != '\r' && c != '\n')
+         break;
+      i++;
+     }
+   return i;
+  }
+
+//+------------------------------------------------------------------+
+//| Id del chat y texto del MENSAJE de un update, leidos solo en el   |
+//| primer nivel del mensaje. 'chunk' arranca dentro del objeto del   |
+//| update (nivel 0): el mensaje es el objeto de nivel 1 y su "chat", |
+//| el de nivel 2. Lo citado (reply_to_message, quote) queda mas      |
+//| adentro y se saltea. False si al mensaje le falta alguno de los   |
+//| dos (fotos, botones, altas y bajas del chat).                     |
+//+------------------------------------------------------------------+
+bool TgMessageFields(const string &chunk, string &chatId, string &text)
+  {
+   chatId = "";
+   text   = "";
+   bool hasText = false;
+   bool inChat  = false;                 // dentro del "chat" del mensaje
+   int  depth   = 0;
+   int  n       = StringLen(chunk);
+   for(int i = 0; i < n; i++)
+     {
+      ushort c = StringGetCharacter(chunk, i);
+      if(c == '{' || c == '[')
+        {
+         depth++;
+         continue;
+        }
+      if(c == '}' || c == ']')
+        {
+         depth--;
+         if(depth < 2)
+            inChat = false;
+         continue;
+        }
+      if(c != '"')
+         continue;
+
+      //--- Un string: es clave solo si lo sigue ':'
+      int    e   = TgJsonStringEnd(chunk, i);
+      string key = TgJsonSub(chunk, i + 1, e - i - 1);
+      i = e;
+      int v = TgJsonSkipBlank(chunk, e + 1);
+      if(v >= n || StringGetCharacter(chunk, v) != ':')
+         continue;
+      v = TgJsonSkipBlank(chunk, v + 1);
+      if(v >= n)
+         break;
+      ushort first = StringGetCharacter(chunk, v);
+
+      if(depth == 1 && key == "text" && first == '"')
+        {
+         int te  = TgJsonStringEnd(chunk, v);
+         text    = TgJsonSub(chunk, v + 1, te - v - 1);
+         hasText = true;
+         i = te;
+        }
+      else if(depth == 1 && key == "chat" && first == '{')
+         inChat = true;                  // el '{' lo cuenta la vuelta siguiente
+      else if(depth == 2 && inChat && key == "id")
+        {
+         int ve = v;
+         while(ve < n)
+           {
+            ushort d = StringGetCharacter(chunk, ve);
+            if(!((d >= '0' && d <= '9') || (d == '-' && ve == v)))
+               break;
+            ve++;
+           }
+         chatId = TgJsonSub(chunk, v, ve - v);
+         i = ve - 1;
+        }
+     }
+   return (hasText && chatId != "");
+  }
+
+//+------------------------------------------------------------------+
 //| Extrae de la respuesta de getUpdates los textos que llegaron del  |
-//| chat AUTORIZADO y el mayor update_id visto. Parser minimo a       |
-//| proposito: Telegram devuelve JSON compacto y solo hacen falta     |
-//| "update_id", "chat":{"id" y "text". Mensajes de otros chats se    |
-//| ignoran: nadie mas puede aprobar una operacion.                   |
+//| chat AUTORIZADO y el mayor update_id visto. Mensajes de otros     |
+//| chats se ignoran: nadie mas puede aprobar una operacion. El id se |
+//| compara ENTERO: buscarlo como texto dejaba pasar a un chat cuyo   |
+//| id solo EMPIEZA igual (el 5551234 pasaba por el 555).             |
 //+------------------------------------------------------------------+
 int TgExtractCommands(const string json, const long chatId, string &texts[], long &maxUpdateId)
   {
    ArrayResize(texts, 0);
    maxUpdateId = -1;
-   string chatKey = "\"chat\":{\"id\":" + IntegerToString(chatId);
+   string want = IntegerToString(chatId);
    int len = StringLen(json);
    int pos = 0;
    int count = 0;
@@ -60,34 +180,21 @@ int TgExtractCommands(const string json, const long chatId, string &texts[], lon
             break;
          vend++;
         }
-      long uid = StringToInteger(StringSubstr(json, vstart, vend - vstart));
+      long uid = StringToInteger(TgJsonSub(json, vstart, vend - vstart));
       if(uid > maxUpdateId)
          maxUpdateId = uid;
 
       int next  = StringFind(json, "\"update_id\":", vend);
       int limit = (next < 0 ? len : next);
-      string chunk = StringSubstr(json, vend, limit - vend);
+      string chunk = TgJsonSub(json, vend, limit - vend);
 
-      if(StringFind(chunk, chatKey) >= 0)
+      string cid, text;
+      if(TgMessageFields(chunk, cid, text) && cid == want)
         {
-         int t = StringFind(chunk, "\"text\":\"");
-         if(t >= 0)
-           {
-            int ts = t + 8;
-            int te = ts;
-            int clen = StringLen(chunk);
-            while(te < clen)
-              {
-               ushort ch = StringGetCharacter(chunk, te);
-               if(ch == '"' && StringGetCharacter(chunk, te - 1) != '\\')
-                  break;
-               te++;
-              }
-            int sz = ArraySize(texts);
-            ArrayResize(texts, sz + 1);
-            texts[sz] = StringSubstr(chunk, ts, te - ts);
-            count++;
-           }
+         int sz = ArraySize(texts);
+         ArrayResize(texts, sz + 1);
+         texts[sz] = text;
+         count++;
         }
       pos = limit;
      }

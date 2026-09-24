@@ -6,7 +6,7 @@
 //| Validar SIEMPRE en backtest y cuenta demo antes de dinero real.  |
 //+------------------------------------------------------------------+
 #property copyright "ATLAS EA — uso personal"
-#property version   "2.20"
+#property version   "2.21"
 #property strict
 
 #include "include/AtlasTypes.mqh"
@@ -112,7 +112,8 @@ input group "Decision final (esquema: memo + revision humana + alertas 24/7)"
 // riesgo, plan, estado). En AUTOMATICO el memo es informativo y se ejecuta;
 // en CONFIRMAR el bot espera tu respuesta por Telegram; en WATCHLIST solo
 // observa. CONFIRMAR sin Telegram configurado cae a AUTOMATICO (no hay como
-// recibir la respuesta). En el Strategy Tester siempre es AUTOMATICO.
+// recibir la respuesta), y un valor fuera de 0-2 tambien. En el Strategy
+// Tester siempre es AUTOMATICO: en WATCHLIST el backtest daria 0 operaciones.
 input int    InpDecisionMode     = 0;      // 0 = AUTOMATICO · 1 = CONFIRMAR por Telegram · 2 = WATCHLIST (no opera)
 input int    InpApprovalMinutes  = 15;     // CONFIRMAR: minutos de espera por APROBAR / RECHAZAR / WATCH
 input bool   InpApprovalDefault  = false;  // CONFIRMAR: si vence sin respuesta, true = ejecutar igual, false = descartar
@@ -506,7 +507,7 @@ int OnInit()
 
    EventSetTimer(1);
    g_notifier.Log(StringFormat(
-      "ATLAS EA v2.20 iniciado. Simbolos: %s | Riesgo %.1f%%/op | Limite diario %.1f%% | Kill switch %.0f%%",
+      "ATLAS EA v2.21 iniciado. Simbolos: %s | Riesgo %.1f%%/op | Limite diario %.1f%% | Kill switch %.0f%%",
       InpSymbols, InpRiskPct, InpDailyLossPct, InpMaxDrawdownPct));
    //--- Una linea por simbolo: que corre, en que ventana, y esa ventana
    //--- traducida a hora del servidor y a la hora del usuario. Es el
@@ -541,11 +542,14 @@ int OnInit()
          g_session[0].ServerOffsetSec() / 3600,
          (IsUsDst(utcNow) ? "si" : "no"), (IsEuDst(utcNow) ? "si" : "no")));
      }
+   int dm = DecisionMode();
    if(g_telegram.Enabled())
-      g_telegram.Send(StringFormat("ATLAS EA v2.20 en linea | decision: %s | comandos: ESTADO · APROBAR <id> · RECHAZAR <id> · WATCH <id>",
-                      (InpDecisionMode == 1 ? "CONFIRMAR (espero tu APROBAR)" : InpDecisionMode == 2 ? "WATCHLIST (no opero)" : "AUTOMATICO")));
+      g_telegram.Send(StringFormat("ATLAS EA v2.21 en linea | decision: %s | comandos: ESTADO · APROBAR <id> · RECHAZAR <id> · WATCH <id>",
+                      (dm == 1 ? "CONFIRMAR (espero tu APROBAR)" : dm == 2 ? "WATCHLIST (no opero)" : "AUTOMATICO")));
    else if(InpDecisionMode == 1)
       g_notifier.Log("Decision: modo CONFIRMAR pedido pero sin Telegram configurado (token/chat id): se opera en AUTOMATICO.");
+   if(InpDecisionMode < 0 || InpDecisionMode > 2)
+      g_notifier.Log(StringFormat("Decision: InpDecisionMode=%d no existe (0, 1 o 2): se opera en AUTOMATICO.", InpDecisionMode));
    if(TerminalInfoInteger(TERMINAL_VPS))
       g_notifier.Notify("Corriendo en VPS 24/5 (sin panel visual). El pico de equity del kill switch arranca desde el equity actual.");
    if(g_risk.KillSwitchLatched())
@@ -923,9 +927,7 @@ bool EvaluateSymbol(const int idx)
                   g_risk.DayPnLPct(), InpDailyLossPct));
 
    //--- MEMO DE DECISION FINAL + revision humana
-   int mode = InpDecisionMode;
-   if(mode == 1 && !g_telegram.Enabled())
-      mode = 0;                          // sin canal de respuesta no se puede esperar
+   int mode = DecisionMode();
    g_memoSeq++;
    string memoId = MemoId(TimeTradeServer(), g_memoSeq);
    string estado;
@@ -956,7 +958,7 @@ bool EvaluateSymbol(const int idx)
       g_pendSig          = sig;
       g_pendEntry        = entry;
       g_pendId           = memoId;
-      g_pendSince        = TimeCurrent();
+      g_pendSince        = TimeTradeServer();
       g_pendFromSmc      = fromSmc;
       g_pendFromCrt      = fromCrt;
       g_pendFromBreakout = fromBreakout;
@@ -1085,6 +1087,23 @@ void EvaluateRev(const int idx)
   }
 
 //+------------------------------------------------------------------+
+//| Modo de decision que rige de verdad. En el tester siempre         |
+//| AUTOMATICO (en WATCHLIST el backtest daba 0 operaciones); en vivo |
+//| CONFIRMAR sin Telegram cae a AUTOMATICO (no hay como recibir la   |
+//| respuesta), y un valor fuera de 0-2 tambien.                      |
+//+------------------------------------------------------------------+
+int DecisionMode()
+  {
+   if(MQLInfoInteger(MQL_TESTER))
+      return 0;
+   if(InpDecisionMode < 0 || InpDecisionMode > 2)
+      return 0;
+   if(InpDecisionMode == 1 && !g_telegram.Enabled())
+      return 0;
+   return InpDecisionMode;
+  }
+
+//+------------------------------------------------------------------+
 //| MEMO DE DECISION FINAL (esquema, lamina 7): resumen del setup,    |
 //| fuerza de la senal, nivel de riesgo, plan de trading y estado.    |
 //+------------------------------------------------------------------+
@@ -1187,7 +1206,7 @@ void ExecutePending(const string why)
 //+------------------------------------------------------------------+
 string StatusReport()
   {
-   string s = StringFormat("ESTADO ATLAS v2.20 %s\nEquity %.2f · dia %+.2f%% · DD desde pico %.1f%% · riesgo abierto %.1f%%\n",
+   string s = StringFormat("ESTADO ATLAS v2.21 %s\nEquity %.2f · dia %+.2f%% · DD desde pico %.1f%% · riesgo abierto %.1f%%\n",
                            TimeToString(TimeTradeServer(), TIME_DATE | TIME_MINUTES),
                            AccountInfoDouble(ACCOUNT_EQUITY), g_risk.DayPnLPct(),
                            g_risk.DrawdownFromPeakPct(), g_risk.OpenRiskPct());
@@ -1204,7 +1223,7 @@ string StatusReport()
      }
    if(g_pendActive)
       s += StringFormat("Decision pendiente: %s (%d min restantes)\n", g_pendId,
-                        (int)MathMax(0, (InpApprovalMinutes * 60 - (TimeCurrent() - g_pendSince)) / 60));
+                        (int)MathMax(0, (InpApprovalMinutes * 60 - (TimeTradeServer() - g_pendSince)) / 60));
    string nd = ""; datetime nw = 0;
    if(g_news.NextHighImpact(nd, nw))
       s += "Proxima noticia: " + nd + " @ " + TimeToString(nw, TIME_DATE | TIME_MINUTES);
@@ -1256,10 +1275,13 @@ void HandleCommand(const string raw)
 //| Telegram se consulta cada 10 s con decision pendiente y cada 60 s |
 //| si no (para responder ESTADO). WebRequest es sincrono: el timeout |
 //| corto evita que el ciclo se quede colgado.                        |
+//| El reloj es TimeTradeServer(), que avanza siempre: TimeCurrent()  |
+//| es la hora del ultimo tick y sin precios (fin de semana) se       |
+//| congela, con lo que Telegram dejaba de leerse hasta el lunes.     |
 //+------------------------------------------------------------------+
 void HandleDecisions()
   {
-   datetime now = TimeCurrent();
+   datetime now = TimeTradeServer();
    if(g_pendActive && now - g_pendSince >= InpApprovalMinutes * 60)
      {
       if(InpApprovalDefault)
@@ -1273,8 +1295,8 @@ void HandleDecisions()
    if(!g_telegram.Enabled())
       return;
    int every = (g_pendActive ? 10 : 60);
-   if(now - g_lastTgPoll < every)
-      return;
+   if(now >= g_lastTgPoll && now - g_lastTgPoll < every)
+      return;                            // (si el reloj retrocede, se consulta y se resincroniza)
    g_lastTgPoll = now;
    string cmds[];
    int n = g_telegram.Poll(cmds);

@@ -53,7 +53,7 @@ contraseña (no se ve al escribirla — es normal) y riesgo por operación (Ente
 bash ~/atlas-ea/docker/cuentas.sh log xm-real
 ```
 
-Tiene que aparecer `ATLAS EA v2.00 iniciado` y **una línea por símbolo** con sus
+Tiene que aparecer `ATLAS EA v2.21 iniciado` y **una línea por símbolo** con sus
 estrategias y su sesión, por ejemplo:
 
 ```
@@ -103,6 +103,8 @@ editar (con `nano` por ejemplo) y aplicar los cambios recreando el contenedor:
 | `ATLAS_CRT_SYMBOLS` | Qué símbolos operan con CRT | *(vacío — restaba en backtest)* |
 | `ATLAS_NY_SYMBOLS` | Qué símbolos operan en la sesión de Nueva York | `USDJPY` |
 | `ATLAS_LONDON_SYMBOLS` | Qué símbolos operan en la sesión de Londres | `XAUUSD,XAGUSD` |
+| `ATLAS_TG_TOKEN` · `ATLAS_TG_CHAT_ID` | Telegram: memos, alertas y aprobación (ver README). **Un bot por cuenta** | *(vacío = sin Telegram)* |
+| `ATLAS_DECISION_MODE` | 0 automático · 1 confirmar por Telegram · 2 solo observar | `0` |
 
 > Los "valores por defecto" son los que **compila el EA**. Si una variable no está en el
 > `.env`, el entrypoint no escribe esa línea y manda el default del EA. Si la ponés,
@@ -135,6 +137,11 @@ valores nuevos — son 2 minutos.)*
 4. **Las actualizaciones del bot no se aplican solas.** Cuando mejoremos el código y se
    reconstruya la imagen, cada cuenta se actualiza recreando su contenedor — una por
    una, cuando vos quieras.
+5. **Un bot de Telegram por cuenta.** Si dos cuentas usan el mismo `ATLAS_TG_TOKEN`,
+   los dos EAs leen el mismo chat y se roban los mensajes: un `APROBAR` lo puede agarrar
+   la cuenta equivocada, y los IDs de los memos (`FD-aammdd-NNN`) se repiten entre
+   cuentas. Creá un bot nuevo en @BotFather para cada una; el `ATLAS_TG_CHAT_ID` sí es
+   el mismo en todas (el tuyo).
 
 ---
 

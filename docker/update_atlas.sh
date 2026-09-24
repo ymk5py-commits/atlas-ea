@@ -118,5 +118,5 @@ fi
 echo "  ✓ Bot relanzado. Primeras líneas:"
 "$DOCKER" logs --tail 20 "$NAME" 2>&1 | sed 's/^/    /'
 echo
-echo "  Verificá que aparezca 'ATLAS EA v2.00 iniciado' y una línea por símbolo"
+echo "  Verificá que aparezca 'ATLAS EA v2.21 iniciado' y una línea por símbolo"
 echo "  con su sesión traducida. Seguimiento: docker logs -f $NAME"
